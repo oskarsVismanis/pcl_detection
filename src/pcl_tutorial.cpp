@@ -14,6 +14,8 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/voxel_grid.h>
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
+
 void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 {
     // define the input pointcloud as a pointer
@@ -130,8 +132,13 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
 
 int main(int argc, char ** argv)
 {
-    std::string path_input="/home/oskars/workspace/pcl_ws/src/pcl_detection/src/inputs/";
-    std::string path_output="/home/oskars/workspace/pcl_ws/src/pcl_detection/src/outputs/";
+    std::string package_share_dir = ament_index_cpp::get_package_share_directory("pcl_detection");
+
+
+    // std::string path_input="/home/oskars/workspace/pcl_ws/src/pcl_detection/src/inputs/";
+    std::string path_output="/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/";
+    std::string path_input = package_share_dir + "/data/inputs/";
+    // std::string path_output = package_share_dir + "/data/outputs/";
     std::string input_pcd = path_input + std::string("test.pcd");
     std::string output_pcd = path_output + std::string("filtered_points.pcd");
 

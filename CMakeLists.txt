@@ -16,9 +16,9 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
+find_package(ament_index_cpp REQUIRED)
+
 add_executable(perceive_surfaces src/perceive_surfaces.cpp)
-
-
 
 target_include_directories(perceive_surfaces PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -42,6 +42,7 @@ ament_target_dependencies(
   pcl_ros
   pcl_msgs
   pcl_conversions
+  ament_index_cpp
 )
 
 add_executable(save_data src/save_data.cpp)
@@ -59,6 +60,11 @@ install(TARGETS
   pcl_tutorial
   save_data
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY
+  data/
+  DESTINATION share/${PROJECT_NAME}/data
 )
 
 if(BUILD_TESTING)
