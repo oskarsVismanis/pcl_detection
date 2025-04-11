@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <math.h>
 #include <pcl/common/common.h>
+#include <pcl/common/transforms.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -16,6 +17,13 @@
 #include <pcl/filters/voxel_grid.h>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
+
+// #include <moveit_msgs/msg/collision_object.hpp>
+// #include <shape_msgs/msg/solid_primitive.hpp>
+// #include <geometry_msgs/msg/pose.hpp>
+// #include <std_msgs/msg/header.hpp>
+// #include <chrono>
+// #include <thread>
 
 void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 {
@@ -45,7 +53,7 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
   seg.setMethodType(pcl::SACMODEL_PLANE); // search for planes
   seg.setModelType(pcl::SAC_RANSAC); // use RANSAC for plane segmentation
   seg.setMaxIterations(100);
-  seg.setDistanceThreshold(0.01);
+  seg.setDistanceThreshold(0.005); // 0.01
   seg.setInputCloud(cloud_filtered);
   seg.segment(*inliers_plane, *coefficients_plane);
 
@@ -57,6 +65,59 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
   neg_plane_extracted.setNegative(false); // leaves only the plane and removes everything else
   neg_plane_extracted.filter(*cloud_filtered);
 
+  // passtrough filter
+  // pcl::PassThrough<pcl::PointXYZ> pass;
+  // pass.setInputCloud(cloud_filtered);
+
+  // pass.setFilterFieldName("z"); // filter the z axis values
+  // pass.setFilterLimits(0.5, 1.18); // PLAY -> change the z value and check what is filtered off
+  // pass.filter(*cloud_filtered);
+
+  // Align plane to horizontal plane
+    // 1. Extract plane normal
+  Eigen::Vector3f normal(coefficients_plane->values[0],
+                         coefficients_plane->values[1],
+                         coefficients_plane->values[2]);
+  normal.normalize();
+
+    // 2. Define target normal (Z axis)
+  Eigen::Vector3f z_axis(0.0f, 0.0f, 1.0f);
+
+    // 3. Compute initial angle
+  float dot_product = normal.dot(z_axis);
+  float angle_rad = std::acos(dot_product);
+  float angle_deg = angle_rad * 180.0 / M_PI;
+
+  std::cout << "Initial angle from horizontal (Z-axis): " << angle_deg << " degrees" << std::endl;
+
+  if (angle_deg < 5.0) {
+    std::cout << "Plane is already approximately horizontal. No transform applied." << std::endl;
+  } else {
+    // 4. Compute rotation axis
+    Eigen::Vector3f axis = normal.cross(z_axis);
+
+    if (axis.norm() < 1e-6) {
+      std::cout << "Normal already aligned with Z-axis (upward or downward)." << std::endl;
+    } else {
+      axis.normalize();
+
+      // 5. Build and apply rotation
+      Eigen::AngleAxisf rotation(angle_rad, axis);
+      Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+      transform.rotate(rotation);
+
+      pcl::transformPointCloud(*cloud_filtered, *cloud_filtered, transform);
+      std::cout << "Plane rotated to horizontal alignment." << std::endl;
+
+      // 6. Recompute normal after transform (transform the original normal)
+      Eigen::Vector3f rotated_normal = rotation * normal;
+      float angle_after_rad = std::acos(rotated_normal.dot(z_axis));
+      float angle_after_deg = angle_after_rad * 180.0 / M_PI;
+
+      std::cout << "Angle from horizontal after rotation: " << angle_after_deg << " degrees" << std::endl;
+    }
+  }
+
   // Example for estimating bounding box size
   pcl::PointXYZ min_pt, max_pt;
   pcl::getMinMax3D(*cloud_filtered, min_pt, max_pt);
@@ -64,21 +125,63 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
   double width  = max_pt.y - min_pt.y;
   double height = max_pt.z - min_pt.z;
 
-  std::cout << "Plane coefficients: "
-          << coefficients_plane->values[0] << " "
-          << coefficients_plane->values[1] << " "
-          << coefficients_plane->values[2] << " "
-          << coefficients_plane->values[3] << std::endl;
-
   std::cout << "Bounding Box Dimensions:" << std::endl;
   std::cout << "Length (X): " << length << " meters" << std::endl;
   std::cout << "Width  (Y): " << width  << " meters" << std::endl;
   std::cout << "Height (Z): " << height << " meters" << std::endl;
 
+  std::cout << "max_pt (X): " << max_pt.x << " meters" << std::endl;
+  std::cout << "min_pt (x): " << min_pt.x << " meters" << std::endl;
+  std::cout << "max_pt (Y): " << max_pt.y << " meters" << std::endl;
+  std::cout << "min_pt (Y): " << min_pt.y << " meters" << std::endl;
+  std::cout << "max_pt (X): " << max_pt.z << " meters" << std::endl;
+  std::cout << "min_pt (Z): " << min_pt.z << " meters" << std::endl;
+
+
+  
   // save the filtered .pcd file
   pcl::PCDWriter cloud_writer;
   cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
 }
+
+// void publish_collision_plane(
+//   rclcpp::Node::SharedPtr node,
+//   rclcpp::Publisher<moveit_msgs::msg::CollisionObject>::SharedPtr& collision_pub,
+//   const std::string& frame_id,
+//   double width,
+//   double length,
+//   double height = 0.01,  // thin height to represent a plane
+//   double x = 0.0,
+//   double y = 0.0,
+//   double z = 0.0)
+// {
+//   moveit_msgs::msg::CollisionObject collision_object;
+//   collision_object.header.frame_id = frame_id;
+//   collision_object.id = "segmented_plane";
+
+//   // Define the box primitive
+//   shape_msgs::msg::SolidPrimitive primitive;
+//   primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+//   primitive.dimensions.resize(3);
+//   primitive.dimensions[0] = length;
+//   primitive.dimensions[1] = width;
+//   primitive.dimensions[2] = height;
+
+//   // Define the pose of the box
+//   geometry_msgs::msg::Pose pose;
+//   pose.position.x = x;
+//   pose.position.y = y;
+//   pose.position.z = z + height / 2.0;  // so the base is aligned with the plane
+//   pose.orientation.w = 1.0;  // no rotation since the plane is already aligned horizontally
+
+//   collision_object.primitives.push_back(primitive);
+//   collision_object.primitive_poses.push_back(pose);
+//   collision_object.operation = collision_object.ADD;
+
+//   // Publish the collision object
+//   collision_pub->publish(collision_object);
+//   RCLCPP_INFO(node->get_logger(), "Published collision object.");
+// }
 
 int main(int argc, char ** argv)
 {
@@ -93,5 +196,24 @@ int main(int argc, char ** argv)
     std::string output_pcd = path_output + std::string("filtered_realsense.pcd");
 
     process_pcl_data(input_pcd, output_pcd);
+
+    // auto node = rclcpp::Node::make_shared("collision_publisher");
+
+    // auto collision_pub = node->create_publisher<moveit_msgs::msg::CollisionObject>(
+    //   "collision_object", 10);
+
+    // // Give RViz time to start up and subscribe
+    // rclcpp::sleep_for(std::chrono::seconds(2));
+
+    // // Use bounding box center as position
+    // double center_x = (min_pt.x + max_pt.x) / 2.0;
+    // double center_y = (min_pt.y + max_pt.y) / 2.0;
+    // double center_z = 10;
+
+    // double width = 0.599983;
+    // double length = 1.38467; 
+
+    // publish_collision_plane(node, collision_pub, "base_link", width, length, 0.01, center_x, center_y, center_z);
+
     return 0;
 }

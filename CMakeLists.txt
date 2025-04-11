@@ -16,6 +16,10 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
+# find_package(moveit_msgs REQUIRED)
+# find_package(geometry_msgs REQUIRED)
+# find_package(shape_msgs REQUIRED)
+
 find_package(ament_index_cpp REQUIRED)
 
 add_executable(perceive_surfaces src/perceive_surfaces.cpp)
