@@ -7,20 +7,18 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-find_package(rclcpp REQUIRED)
-find_package(rclpy REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
-find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 
-# find_package(moveit_msgs REQUIRED)
-# find_package(geometry_msgs REQUIRED)
-# find_package(shape_msgs REQUIRED)
-
-find_package(ament_index_cpp REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_visual_tools REQUIRED)
 
 add_executable(perceive_surfaces src/perceive_surfaces.cpp)
 
@@ -34,6 +32,8 @@ ament_target_dependencies(
   rclpy
   std_msgs
   sensor_msgs
+  moveit_ros_planning_interface
+  moveit_visual_tools
   pcl_ros
   pcl_msgs
   pcl_conversions

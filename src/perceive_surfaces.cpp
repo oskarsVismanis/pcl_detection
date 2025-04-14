@@ -1,7 +1,7 @@
-#include <rclcpp/rclcpp.hpp>
 #include <iostream>
 #include <filesystem>
 #include <math.h>
+
 #include <pcl/common/common.h>
 #include <pcl/common/transforms.h>
 #include <pcl/ModelCoefficients.h>
@@ -16,14 +16,13 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/voxel_grid.h>
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
+#include <rclcpp/rclcpp.hpp>
+#include <cstdio>
 
-// #include <moveit_msgs/msg/collision_object.hpp>
-// #include <shape_msgs/msg/solid_primitive.hpp>
-// #include <geometry_msgs/msg/pose.hpp>
-// #include <std_msgs/msg/header.hpp>
-// #include <chrono>
-// #include <thread>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit_visual_tools/moveit_visual_tools.h>
+
+#include "ament_index_cpp/get_package_share_directory.hpp"
 
 void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 {
@@ -144,44 +143,61 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
   cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
 }
 
-// void publish_collision_plane(
-//   rclcpp::Node::SharedPtr node,
-//   rclcpp::Publisher<moveit_msgs::msg::CollisionObject>::SharedPtr& collision_pub,
-//   const std::string& frame_id,
-//   double width,
-//   double length,
-//   double height = 0.01,  // thin height to represent a plane
-//   double x = 0.0,
-//   double y = 0.0,
-//   double z = 0.0)
-// {
-//   moveit_msgs::msg::CollisionObject collision_object;
-//   collision_object.header.frame_id = frame_id;
-//   collision_object.id = "segmented_plane";
+void publish_collision_plane(
+  rclcpp::Node::SharedPtr node, 
+  double width = 0.599983, 
+  double length = 1.38467, 
+  double height = 0.01, 
+  pcl::PointXYZ min_pt, 
+  pcl::PointXYZ max_pt) 
+{
 
-//   // Define the box primitive
-//   shape_msgs::msg::SolidPrimitive primitive;
-//   primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
-//   primitive.dimensions.resize(3);
-//   primitive.dimensions[0] = length;
-//   primitive.dimensions[1] = width;
-//   primitive.dimensions[2] = height;
+  double width = 0.599983;
+  double length = 1.38467;
+  double height = 0.01;  // thin height to represent a plane
 
-//   // Define the pose of the box
-//   geometry_msgs::msg::Pose pose;
-//   pose.position.x = x;
-//   pose.position.y = y;
-//   pose.position.z = z + height / 2.0;  // so the base is aligned with the plane
-//   pose.orientation.w = 1.0;  // no rotation since the plane is already aligned horizontally
+  pcl::PointXYZ min_pt, max_pt;
 
-//   collision_object.primitives.push_back(primitive);
-//   collision_object.primitive_poses.push_back(pose);
-//   collision_object.operation = collision_object.ADD;
+  min_pt.x = -0.692448;
+  max_pt.x = 0.69222;
 
-//   // Publish the collision object
-//   collision_pub->publish(collision_object);
-//   RCLCPP_INFO(node->get_logger(), "Published collision object.");
-// }
+  min_pt.y = -0.90901;
+  max_pt.y = -0.309027;
+
+  double x = (min_pt.x + max_pt.x) / 2.0;
+  double y = (min_pt.y + max_pt.y) / 2.0;
+  double z = 1.0;
+
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+
+  moveit_msgs::msg::CollisionObject collision_object;
+  collision_object.header.frame_id = "base_link";
+  collision_object.id = "segmented_plane";
+
+  // Define the box primitive
+  shape_msgs::msg::SolidPrimitive primitive;
+  primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+  primitive.dimensions.resize(3);
+  primitive.dimensions[0] = length;
+  primitive.dimensions[1] = width;
+  primitive.dimensions[2] = height;
+
+  // Define the pose of the box
+  geometry_msgs::msg::Pose pose;
+  pose.position.x = x;
+  pose.position.y = y;
+  pose.position.z = z + height / 2.0;  // so the base is aligned with the plane
+  pose.orientation.w = 1.0;  // no rotation since the plane is already aligned horizontally
+
+  collision_object.primitives.push_back(primitive);
+  collision_object.primitive_poses.push_back(pose);
+  collision_object.operation = collision_object.ADD;
+
+  // node->get_service_names_and_types()
+
+  planning_scene_interface.applyCollisionObject(collision_object);
+  RCLCPP_INFO(node->get_logger(), "Published collision object.");
+}
 
 int main(int argc, char ** argv)
 {
@@ -195,25 +211,29 @@ int main(int argc, char ** argv)
     std::string input_pcd = path_input + std::string("test.pcd");
     std::string output_pcd = path_output + std::string("filtered_realsense.pcd");
 
-    process_pcl_data(input_pcd, output_pcd);
+    // process_pcl_data(input_pcd, output_pcd);
 
-    // auto node = rclcpp::Node::make_shared("collision_publisher");
+    rclcpp::init(argc, argv);
 
-    // auto collision_pub = node->create_publisher<moveit_msgs::msg::CollisionObject>(
-    //   "collision_object", 10);
+    rclcpp::executors::MultiThreadedExecutor executor;
 
-    // // Give RViz time to start up and subscribe
-    // rclcpp::sleep_for(std::chrono::seconds(2));
+    auto node = rclcpp::Node::make_shared("collision_publisher");
+    // rclcpp::spin(node);
 
-    // // Use bounding box center as position
-    // double center_x = (min_pt.x + max_pt.x) / 2.0;
-    // double center_y = (min_pt.y + max_pt.y) / 2.0;
-    // double center_z = 10;
+    // async node execution
+    executor.add_node(node);
 
-    // double width = 0.599983;
-    // double length = 1.38467; 
+    std::thread executor_thread([&executor]() { executor.spin(); });
+    executor_thread.detach();
 
-    // publish_collision_plane(node, collision_pub, "base_link", width, length, 0.01, center_x, center_y, center_z);
+    RCLCPP_INFO(node->get_logger(), "Run publish_collision_plane");
+    publish_collision_plane(node);
 
+    while(rclcpp::ok())
+    {
+
+    }
+
+    rclcpp::shutdown();
     return 0;
 }
