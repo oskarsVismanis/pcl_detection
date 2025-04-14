@@ -21,6 +21,10 @@ ros2 run pcl_detection save_data
 pcl_viever path/to/filename.pcd
 ```
 
+## Notes
+
+- to work with realsense, an initial passthrough filtering needs to be done, to cut off all the far-away points
+
 ## Installation
 
 - Point Cloud Library (PCL)
