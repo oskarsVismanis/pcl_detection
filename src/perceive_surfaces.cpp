@@ -147,14 +147,15 @@ void publish_collision_plane(
   rclcpp::Node::SharedPtr node, 
   double width = 0.599983, 
   double length = 1.38467, 
-  double height = 0.01, 
-  pcl::PointXYZ min_pt, 
-  pcl::PointXYZ max_pt) 
+  double height = 0.01)
+  // , 
+  // pcl::PointXYZ min_pt, 
+  // pcl::PointXYZ max_pt) 
 {
 
-  double width = 0.599983;
-  double length = 1.38467;
-  double height = 0.01;  // thin height to represent a plane
+  width = 0.599983;
+  length = 1.38467;
+  height = 0.01;  // thin height to represent a plane
 
   pcl::PointXYZ min_pt, max_pt;
 
