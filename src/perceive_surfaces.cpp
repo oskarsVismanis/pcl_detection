@@ -167,12 +167,12 @@ void publish_collision_plane(
 
   double x = (min_pt.x + max_pt.x) / 2.0;
   double y = (min_pt.y + max_pt.y) / 2.0;
-  double z = 1.0;
+  double z = 0.80;
 
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
 
   moveit_msgs::msg::CollisionObject collision_object;
-  collision_object.header.frame_id = "base_link";
+  collision_object.header.frame_id = "map";
   collision_object.id = "segmented_plane";
 
   // Define the box primitive
@@ -194,10 +194,10 @@ void publish_collision_plane(
   collision_object.primitive_poses.push_back(pose);
   collision_object.operation = collision_object.ADD;
 
-  // node->get_service_names_and_types()
-
   planning_scene_interface.applyCollisionObject(collision_object);
   RCLCPP_INFO(node->get_logger(), "Published collision object.");
+
+  // somehow detach the object from the robot so it stays static
 }
 
 int main(int argc, char ** argv)
