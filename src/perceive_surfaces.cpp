@@ -172,7 +172,7 @@ void publish_collision_plane(
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
 
   moveit_msgs::msg::CollisionObject collision_object;
-  collision_object.header.frame_id = "base_link";
+  collision_object.header.frame_id = "map";
   collision_object.id = "segmented_plane";
 
   // Define the box primitive
@@ -194,10 +194,14 @@ void publish_collision_plane(
   collision_object.primitive_poses.push_back(pose);
   collision_object.operation = collision_object.ADD;
 
+  std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
+  collision_objects.push_back(collision_object);
+
   // node->get_service_names_and_types()
 
-  planning_scene_interface.applyCollisionObject(collision_object);
-  RCLCPP_INFO(node->get_logger(), "Published collision object.");
+  RCLCPP_INFO(node->get_logger(), "Add an object into the world");
+  planning_scene_interface.addCollisionObjects(collision_objects);
+
 }
 
 int main(int argc, char ** argv)
