@@ -167,7 +167,7 @@ void publish_collision_plane(
 
   double x = (min_pt.x + max_pt.x) / 2.0;
   double y = (min_pt.y + max_pt.y) / 2.0;
-  double z = 1.0;
+  double z = 0.80;
 
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
 
@@ -196,8 +196,6 @@ void publish_collision_plane(
 
   std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
   collision_objects.push_back(collision_object);
-
-  // node->get_service_names_and_types()
 
   RCLCPP_INFO(node->get_logger(), "Add an object into the world");
   planning_scene_interface.addCollisionObjects(collision_objects);
