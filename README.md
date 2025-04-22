@@ -65,4 +65,3 @@ sudo apt install ros-humble-librealsense2*
 # install Intel RealSense ROS 2 wrapper
 sudo apt install ros-humble-realsense2-*
 ```
-

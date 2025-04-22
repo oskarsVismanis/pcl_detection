@@ -1,28 +1,37 @@
-#include <iostream>
-#include <filesystem>
-#include <math.h>
+// #include <iostream>
+// #include <filesystem>
+// #include <math.h>
 
-#include <pcl/common/common.h>
-#include <pcl/common/transforms.h>
-#include <pcl/ModelCoefficients.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/statistical_outlier_removal.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/filters/voxel_grid.h>
+// #include <pcl/common/common.h>
+// #include <pcl/common/transforms.h>
+// #include <pcl/ModelCoefficients.h>
+// #include <pcl/io/pcd_io.h>
+// #include <pcl/point_types.h>
+// #include <pcl/filters/extract_indices.h>
+// #include <pcl/filters/passthrough.h>
+// #include <pcl/filters/statistical_outlier_removal.h>
+// #include <pcl/features/normal_3d.h>
+// #include <pcl/sample_consensus/method_types.h>
+// #include <pcl/sample_consensus/model_types.h>
+// #include <pcl/segmentation/sac_segmentation.h>
+// #include <pcl/filters/voxel_grid.h>
 
-#include <rclcpp/rclcpp.hpp>
-#include <cstdio>
+// #include <rclcpp/rclcpp.hpp>
+// #include <cstdio>
 
-#include <moveit/planning_scene_interface/planning_scene_interface.h>
-#include <moveit_visual_tools/moveit_visual_tools.h>
+// #include <moveit/planning_scene_interface/planning_scene_interface.h>
+// #include <moveit_visual_tools/moveit_visual_tools.h>
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
+// #include <tf2_ros/static_transform_broadcaster.h>
+// #include <geometry_msgs/msg/transform_stamped.hpp>
+
+// #include "ament_index_cpp/get_package_share_directory.hpp"
+
+#include <pcl_detection/pcl_detection.h>
+
+using namespace pcl_detection;
+
+// const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
 
 void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 {
@@ -202,10 +211,90 @@ void publish_collision_plane(
 
 }
 
+void publish_plane_center(
+  rclcpp::Node::SharedPtr node, 
+  DetectedPlane plane)
+{
+  static tf2_ros::StaticTransformBroadcaster static_broadcaster(node);
+  geometry_msgs::msg::TransformStamped static_transform;
+
+  const std::string parent_frame = "map";
+  const std::string child_frame = plane.name;
+
+  static_transform.header.stamp = node->get_clock()->now();
+  static_transform.header.frame_id = parent_frame;
+  static_transform.child_frame_id = child_frame;
+
+  // check the height
+  double center_x = plane.getCenter().x; // (min_pt.x + max_pt.x) / 2.0;
+  double center_y = plane.getCenter().y; // (min_pt.y + max_pt.y) / 2.0;
+  double center_z = plane.getCenter().z; // (min_pt.z + max_pt.z) / 2.0;
+
+  // a transformation from camera to map needs to be done here
+
+  static_transform.transform.translation.x = center_x;
+  static_transform.transform.translation.y = center_y;
+  static_transform.transform.translation.z = center_z;
+
+  static_transform.transform.rotation.x = 0.0;
+  static_transform.transform.rotation.y = 0.0;
+  static_transform.transform.rotation.z = 0.0;
+  static_transform.transform.rotation.w = 1.0;
+
+  static_broadcaster.sendTransform(static_transform);
+
+  RCLCPP_INFO(node->get_logger(), "Published static transform from %s to %s at (%.3f, %.3f, %.3f)",
+              parent_frame.c_str(), child_frame.c_str(), center_x, center_y, center_z);
+}
+
+void publish_center_link(
+  rclcpp::Node::SharedPtr node
+  // , 
+  // pcl::PointXYZ min_pt, 
+  // pcl::PointXYZ max_pt)
+  )
+{
+  pcl::PointXYZ min_pt, max_pt;
+
+  min_pt.x = -0.692448;
+  max_pt.x = 0.69222;
+
+  min_pt.y = -0.90901;
+  max_pt.y = -0.309027;
+
+  double x = (min_pt.x + max_pt.x) / 2.0;
+  double y = (min_pt.y + max_pt.y) / 2.0;
+  double z = 0.80;
+
+  static tf2_ros::StaticTransformBroadcaster static_broadcaster(node);
+
+  geometry_msgs::msg::TransformStamped static_transform;
+
+  const std::string parent_frame = "map";
+  const std::string child_frame = "collision_center";
+
+  static_transform.header.stamp = node->get_clock()->now();
+  static_transform.header.frame_id = parent_frame;
+  static_transform.child_frame_id = child_frame;
+
+  static_transform.transform.translation.x = x;
+  static_transform.transform.translation.y = y;
+  static_transform.transform.translation.z = z;
+
+  static_transform.transform.rotation.x = 0.0;
+  static_transform.transform.rotation.y = 0.0;
+  static_transform.transform.rotation.z = 0.0;
+  static_transform.transform.rotation.w = 1.0;
+
+  static_broadcaster.sendTransform(static_transform);
+
+  RCLCPP_INFO(node->get_logger(), "Published static transform from %s to %s at (%.3f, %.3f, %.3f)",
+              parent_frame.c_str(), child_frame.c_str(), x, y, z);
+}
+
 int main(int argc, char ** argv)
 {
     std::string package_share_dir = ament_index_cpp::get_package_share_directory("pcl_detection");
-
 
     // std::string path_input="/home/oskars/workspace/pcl_ws/src/pcl_detection/src/inputs/";
     std::string path_output="/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/";
@@ -217,20 +306,31 @@ int main(int argc, char ** argv)
     // process_pcl_data(input_pcd, output_pcd);
 
     rclcpp::init(argc, argv);
+    PCLDetection detection;
 
     rclcpp::executors::MultiThreadedExecutor executor;
 
-    auto node = rclcpp::Node::make_shared("collision_publisher");
-    // rclcpp::spin(node);
-
     // async node execution
-    executor.add_node(node);
+    executor.add_node(detection.node_);
 
     std::thread executor_thread([&executor]() { executor.spin(); });
     executor_thread.detach();
 
-    RCLCPP_INFO(node->get_logger(), "Run publish_collision_plane");
-    publish_collision_plane(node);
+    /*
+    - Process PCL to find existing planes and save their dimensions and center
+    - Publish saved planes' centers to tf_tree 
+    - Monitor robots proximity to plane dimensions (?probably not necessary?)
+    - When mob-man has moved in close proximity to the edge of the plane and is stopped, 
+      publish a collision object with the tf_tree link as its center  
+    - If the mob-man starts moving, remove the collision object
+    */
+
+
+    // RCLCPP_INFO(node->get_logger(), "Run publish_collision_plane");
+    // publish_collision_plane(node);
+
+    RCLCPP_INFO(detection.node_->get_logger(), "Run publish_center_link");
+    publish_center_link(detection.node_);
 
     while(rclcpp::ok())
     {
@@ -240,3 +340,5 @@ int main(int argc, char ** argv)
     rclcpp::shutdown();
     return 0;
 }
+
+// } // namespace pcl_detection
