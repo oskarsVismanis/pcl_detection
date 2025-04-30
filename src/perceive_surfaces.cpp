@@ -33,54 +33,279 @@ using namespace pcl_detection;
 
 // const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
 
-void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
+void voxel_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, float leafsize)
 {
-  /*
-  define the input pointcloud as a pointer
-  */
+  pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+  voxel_filter.setInputCloud(input_cloud);
+  voxel_filter.setLeafSize(leafsize, leafsize, leafsize); // play with (the higher, the larger the distance between the points)
+  voxel_filter.filter(*output_cloud);
+}
 
+void passthrough_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+                        pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
+                        const std::map<std::string, std::pair<float, float>>& limits)
+{
+  pcl::PassThrough<pcl::PointXYZ> pass;
+
+  for (const auto& [axis, range] : limits) {
+    pass.setFilterFieldName(axis);
+    pass.setFilterLimits(range.first, range.second);
+    pass.setInputCloud(input_cloud);
+    pass.filter(*output_cloud);
+  }
+
+}
+
+void statistical_outlier_removal(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
+{
+  pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
+  sor.setInputCloud(input_cloud);
+  sor.setMeanK(150);
+  sor.setStddevMulThresh(0.5);
+
+  // show outliers
+  sor.setNegative (true);
+  sor.filter (*output_cloud);
+  pcl::PCDWriter writer;
+  writer.write<pcl::PointXYZ> ("/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/scene.pcd", *output_cloud, false);
+  
+  sor.setNegative(false);
+  sor.filter(*output_cloud);
+}
+
+void moving_least_squares(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
+{
+  
+  // Moving Least Squares (MLS) filter (method 2) https://pcl.readthedocs.io/projects/tutorials/en/latest/resampling.html
+
+  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+
+  // Output has the PointNormal type in order to store the normals calculated by MLS
+  pcl::PointCloud<pcl::PointNormal> mls_points;
+
+  // Init object (second point type is for the normals, even if unused)
+  pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointNormal> mls;
+
+  mls.setComputeNormals(true);
+
+  // Set parameters
+  mls.setInputCloud(input_cloud);
+  mls.setPolynomialOrder(2);
+  mls.setSearchMethod(tree);
+  mls.setSearchRadius(0.03);
+
+  // Reconstruct
+  mls.process(mls_points);
+
+  // Save output
+  pcl::io::savePCDFile("/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/bun0-mls.pcd", mls_points);
+
+  // convert PointNormal to PointXYZ
+
+  // pcl::PointCloud<pcl::PointXYZ>::Ptr smoothed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  // smoothed_cloud->points.reserve(mls_points.points.size());
+
+  // for (const auto& pt : mls_points.points) {
+  //     smoothed_cloud->points.emplace_back(pt.x, pt.y, pt.z);
+  // }
+  // smoothed_cloud->width = smoothed_cloud->points.size();
+  // smoothed_cloud->height = 1;
+  // smoothed_cloud->is_dense = true;
+
+  // *output_cloud = *smoothed_cloud; // replace the original filtered cloud
+}
+
+void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+                        pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
+                        bool show_plane = true, 
+                        bool aligned_plane = false)
+{
+  pcl::SACSegmentation<pcl::PointXYZ> seg;
+  pcl::PointIndices::Ptr inliers_plane(new pcl::PointIndices);
+  pcl::ModelCoefficients::Ptr coefficients_plane(new pcl::ModelCoefficients);
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>());
+
+  seg.setOptimizeCoefficients(true);
+  seg.setMethodType(pcl::SACMODEL_PLANE); // search for planes
+  seg.setModelType(pcl::SAC_RANSAC); // use RANSAC for plane segmentation
+  seg.setMaxIterations(100);
+  seg.setDistanceThreshold(0.005); // 0.01
+  seg.setInputCloud(input_cloud);
+  seg.segment(*inliers_plane, *coefficients_plane);
+
+      // extract plane from image
+  pcl::ExtractIndices<pcl::PointXYZ> neg_plane_extracted;
+  neg_plane_extracted.setInputCloud(input_cloud);
+  neg_plane_extracted.setIndices(inliers_plane);
+  if(!show_plane)
+  {
+    neg_plane_extracted.setNegative(true); // removes the plane from the original point cloud
+  } else {
+    neg_plane_extracted.setNegative(false); // leaves only the plane and removes everything else
+  }
+  
+  neg_plane_extracted.filter(*output_cloud);
+
+  // align plane to horizontal plane
+  if(aligned_plane){
+      // 1. Extract plane normal
+    Eigen::Vector3f normal(coefficients_plane->values[0],
+                           coefficients_plane->values[1],
+                           coefficients_plane->values[2]);
+    normal.normalize();
+
+    // 2. Define target normal (Z axis)
+    Eigen::Vector3f z_axis(0.0f, 0.0f, 1.0f);
+
+    // 3. Compute initial angle
+    float dot_product = normal.dot(z_axis);
+    float angle_rad = std::acos(dot_product);
+    float angle_deg = angle_rad * 180.0 / M_PI;
+
+    std::cout << "Initial angle from horizontal (Z-axis): " << angle_deg << " degrees" << std::endl;
+
+    if (angle_deg < 5.0) {
+      std::cout << "Plane is already approximately horizontal. No transform applied." << std::endl;
+    } else {
+      // 4. Compute rotation axis
+      Eigen::Vector3f axis = normal.cross(z_axis);
+
+      if (axis.norm() < 1e-6) {
+        std::cout << "Normal already aligned with Z-axis (upward or downward)." << std::endl;
+      } else {
+        axis.normalize();
+
+        // 5. Build and apply rotation
+        Eigen::AngleAxisf rotation(angle_rad, axis);
+        Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+        transform.rotate(rotation);
+
+        pcl::transformPointCloud(*output_cloud, *output_cloud, transform);
+        std::cout << "Plane rotated to horizontal alignment." << std::endl;
+
+        // 6. Recompute normal after transform (transform the original normal)
+        Eigen::Vector3f rotated_normal = rotation * normal;
+        float angle_after_rad = std::acos(rotated_normal.dot(z_axis));
+        float angle_after_deg = angle_after_rad * 180.0 / M_PI;
+
+        std::cout << "Angle from horizontal after rotation: " << angle_after_deg << " degrees" << std::endl;
+      }
+    }
+  }
+  
+}
+
+// void align_plane(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+//                  pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
+//                  pcl::ModelCoefficients::Ptr coefficients_plane)
+// {
+  
+// }
+
+void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud)
+{
+  pcl::PointXYZ min_pt, max_pt;
+  pcl::getMinMax3D(*input_cloud, min_pt, max_pt);
+  double length = max_pt.x - min_pt.x;
+  double width  = max_pt.y - min_pt.y;
+  double height = max_pt.z - min_pt.z;
+
+  std::cout << "Bounding Box Dimensions:" << std::endl;
+  std::cout << "Length (X): " << length << " meters" << std::endl;
+  std::cout << "Width  (Y): " << width  << " meters" << std::endl;
+  std::cout << "Height (Z): " << height << " meters" << std::endl;
+
+  std::cout << "max_pt (X): " << max_pt.x << " meters" << std::endl;
+  std::cout << "min_pt (x): " << min_pt.x << " meters" << std::endl;
+  std::cout << "max_pt (Y): " << max_pt.y << " meters" << std::endl;
+  std::cout << "min_pt (Y): " << min_pt.y << " meters" << std::endl;
+  std::cout << "max_pt (X): " << max_pt.z << " meters" << std::endl;
+  std::cout << "min_pt (Z): " << min_pt.z << " meters" << std::endl;
+}
+
+void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
+{
+  //define the input pointcloud as a pointer
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-  /*
-  read .pcd file
-  */
-
+  //read .pcd file  
   pcl::PCDReader cloud_reader;
   cloud_reader.read(input_pcd, *cloud);
 
-  /*
-  define the output pointcloud as a pointer
-  */
-
+  //define the output pointcloud as a pointer
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
 
   /*
   voxel filter (downsampling)
   */
+  voxel_filter(cloud, cloud_filtered, 0.0001);
 
-  pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
-  voxel_filter.setInputCloud(cloud);
-  voxel_filter.setLeafSize(0.01, 0.01, 0.01); // play with (the higher, the larger the distance between the points)
-  voxel_filter.filter(*cloud_filtered);
+
+  /*
+  some step to align the point cloud to some normal orientation
+  */
+
+  /*
+  segment plane
+  */
+  plane_segmentation(cloud_filtered, cloud_filtered, true, true);
 
   /*
   passtrough filter for noise filtering
   */
+  std::map<std::string, std::pair<float, float>> limits = {
+    // {"y", {-0.4f, 0.5f}},
+    {"z", {0.5f, 1.05f}}
+  };
+  // passthrough_filter(cloud_filtered, cloud_filtered, limits);
 
-  pcl::PassThrough<pcl::PointXYZ> pass;
-  pass.setInputCloud(cloud_filtered);
+  /*
+  estimate plane bounding box
+  */
+  estimate_plane_bbox(cloud_filtered);
 
-  // pass.setFilterFieldName("x"); // filter the z axis values
-  // pass.setFilterLimits(-1.0, 1.0); // PLAY -> change the z value and check what is filtered off
-  // pass.filter(*cloud_filtered);
+  // save the filtered .pcd file
+  pcl::PCDWriter cloud_writer;
+  cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
+}
 
-  pass.setFilterFieldName("y"); // filter the y axis values
-  pass.setFilterLimits(-0.4, 0.5); // PLAY -> change the y value and check what is filtered off
-  pass.filter(*cloud_filtered);
+void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
+{
+  
+  //define the input pointcloud as a pointer
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 
-  pass.setFilterFieldName("z"); // filter the z axis values
-  pass.setFilterLimits(0.0, 2.0); // PLAY -> change the z value and check what is filtered off
-  pass.filter(*cloud_filtered);
+  //read .pcd file  
+  pcl::PCDReader cloud_reader;
+  cloud_reader.read(input_pcd, *cloud);
+
+  //define the output pointcloud as a pointer
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
+
+  /*
+  voxel filter (downsampling)
+  */
+  voxel_filter(cloud, cloud_filtered, 0.005);
+
+
+  /*
+  some step to align the point cloud to some normal orientation
+  */
+
+  /*
+  passtrough filter for noise filtering
+  */
+  std::map<std::string, std::pair<float, float>> limits = {
+    {"y", {-0.4f, 0.5f}},
+    {"z", {0.5f, 2.0f}}
+  };
+
+  passthrough_filter(cloud_filtered, cloud_filtered, limits);
+
+  /*
+  statistical outlier filter
+  */
+  // statistical_outlier_removal(cloud_filtered, cloud_filtered);
 
   /*
   *Stretch* the planes to remove ripples
@@ -98,64 +323,9 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
 
   // *cloud_filtered = *smoothed_cloud;
 
-    // Moving Least Squares (MLS) filter (method 2) https://pcl.readthedocs.io/projects/tutorials/en/latest/resampling.html
+  // moving_least_squares(cloud_filtered, cloud_filtered);
 
-  // Create a KD-Tree
-  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-
-  // Output has the PointNormal type in order to store the normals calculated by MLS
-  pcl::PointCloud<pcl::PointNormal> mls_points;
-
-  // Init object (second point type is for the normals, even if unused)
-  pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointNormal> mls;
-
-  // Set parameters
-  mls.setInputCloud(cloud_filtered);
-  mls.setPolynomialOrder(2);
-  mls.setSearchMethod(tree);
-  mls.setSearchRadius(0.05);
-
-  // Reconstruct
-  mls.process(mls_points);
-
-  pcl::io::savePCDFile ("/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/bun0-mls.pcd", mls_points);
-
-  // pcl::PointCloud<pcl::PointXYZ>::Ptr smoothed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  // smoothed_cloud->points.reserve(mls_points.points.size());
-
-  // for (const auto& pt : mls_points.points) {
-  //     smoothed_cloud->points.emplace_back(pt.x, pt.y, pt.z);
-  // }
-  // smoothed_cloud->width = smoothed_cloud->points.size();
-  // smoothed_cloud->height = 1;
-  // smoothed_cloud->is_dense = true;
-
-  // *cloud_filtered = *smoothed_cloud; // replace the original filtered cloud
-
-  /*
-  plane segmentation
-  */
-
-  // pcl::SACSegmentation<pcl::PointXYZ> seg;
-  // pcl::PointIndices::Ptr inliers_plane(new pcl::PointIndices);
-  // pcl::ModelCoefficients::Ptr coefficients_plane(new pcl::ModelCoefficients);
-  // pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>());
-
-  // seg.setOptimizeCoefficients(true);
-  // seg.setMethodType(pcl::SACMODEL_PLANE); // search for planes
-  // seg.setModelType(pcl::SAC_RANSAC); // use RANSAC for plane segmentation
-  // seg.setMaxIterations(100);
-  // seg.setDistanceThreshold(0.005); // 0.01
-  // seg.setInputCloud(cloud_filtered);
-  // seg.segment(*inliers_plane, *coefficients_plane);
-
-  //     // extract plane from image
-  // pcl::ExtractIndices<pcl::PointXYZ> neg_plane_extracted;
-  // neg_plane_extracted.setInputCloud(cloud_filtered);
-  // neg_plane_extracted.setIndices(inliers_plane);
-  // neg_plane_extracted.setNegative(true); // removes the plane from the original point cloud
-  // // neg_plane_extracted.setNegative(false); // leaves only the plane and removes everything else
-  // neg_plane_extracted.filter(*cloud_filtered);
+  plane_segmentation(cloud_filtered, cloud_filtered);
 
   /*
   filter out non-horizontal planes
@@ -200,75 +370,10 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
   // pass.setFilterLimits(0.5, 1.18); // PLAY -> change the z value and check what is filtered off
   // pass.filter(*cloud_filtered);
 
-  /* 
-  Align plane to horizontal plane
-  */
-
-    // 1. Extract plane normal
-  // Eigen::Vector3f normal(coefficients_plane->values[0],
-  //                        coefficients_plane->values[1],
-  //                        coefficients_plane->values[2]);
-  // normal.normalize();
-
-  //   // 2. Define target normal (Z axis)
-  // Eigen::Vector3f z_axis(0.0f, 0.0f, 1.0f);
-
-  //   // 3. Compute initial angle
-  // float dot_product = normal.dot(z_axis);
-  // float angle_rad = std::acos(dot_product);
-  // float angle_deg = angle_rad * 180.0 / M_PI;
-
-  // std::cout << "Initial angle from horizontal (Z-axis): " << angle_deg << " degrees" << std::endl;
-
-  // if (angle_deg < 5.0) {
-  //   std::cout << "Plane is already approximately horizontal. No transform applied." << std::endl;
-  // } else {
-  //   // 4. Compute rotation axis
-  //   Eigen::Vector3f axis = normal.cross(z_axis);
-
-  //   if (axis.norm() < 1e-6) {
-  //     std::cout << "Normal already aligned with Z-axis (upward or downward)." << std::endl;
-  //   } else {
-  //     axis.normalize();
-
-  //     // 5. Build and apply rotation
-  //     Eigen::AngleAxisf rotation(angle_rad, axis);
-  //     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-  //     transform.rotate(rotation);
-
-  //     pcl::transformPointCloud(*cloud_filtered, *cloud_filtered, transform);
-  //     std::cout << "Plane rotated to horizontal alignment." << std::endl;
-
-  //     // 6. Recompute normal after transform (transform the original normal)
-  //     Eigen::Vector3f rotated_normal = rotation * normal;
-  //     float angle_after_rad = std::acos(rotated_normal.dot(z_axis));
-  //     float angle_after_deg = angle_after_rad * 180.0 / M_PI;
-
-  //     std::cout << "Angle from horizontal after rotation: " << angle_after_deg << " degrees" << std::endl;
-  //   }
-  // }
-
   /*
   Example for estimating bounding box size 
   */
-
-  // pcl::PointXYZ min_pt, max_pt;
-  // pcl::getMinMax3D(*cloud_filtered, min_pt, max_pt);
-  // double length = max_pt.x - min_pt.x;
-  // double width  = max_pt.y - min_pt.y;
-  // double height = max_pt.z - min_pt.z;
-
-  // std::cout << "Bounding Box Dimensions:" << std::endl;
-  // std::cout << "Length (X): " << length << " meters" << std::endl;
-  // std::cout << "Width  (Y): " << width  << " meters" << std::endl;
-  // std::cout << "Height (Z): " << height << " meters" << std::endl;
-
-  // std::cout << "max_pt (X): " << max_pt.x << " meters" << std::endl;
-  // std::cout << "min_pt (x): " << min_pt.x << " meters" << std::endl;
-  // std::cout << "max_pt (Y): " << max_pt.y << " meters" << std::endl;
-  // std::cout << "min_pt (Y): " << min_pt.y << " meters" << std::endl;
-  // std::cout << "max_pt (X): " << max_pt.z << " meters" << std::endl;
-  // std::cout << "min_pt (Z): " << min_pt.z << " meters" << std::endl;
+  // estimate_plane_bbox(cloud_filtered);
 
 
   
@@ -427,13 +532,14 @@ int main(int argc, char ** argv)
   std::string path_output="/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/";
   std::string path_input = package_share_dir + "/data/inputs/";
 
-  // std::string input_pcd = path_input + std::string("test.pcd");
+  std::string input_test_pcd = path_input + std::string("test.pcd");
   std::string input_pcd = path_input + std::string("ar4_realsense.pcd");
-  // std::string output_pcd = path_output + std::string("filtered_realsense.pcd");
+  std::string output_test_pcd = path_output + std::string("filtered_test.pcd");
   std::string output_pcd = path_output + std::string("filtered_ar4_realsense.pcd");
 
   // process point cloud
-  process_pcl_data(input_pcd, output_pcd);
+  // process_pcl_data(input_pcd, output_pcd);
+  process_test_pcl_data(input_test_pcd, output_test_pcd);
 
   // rclcpp::init(argc, argv);
   // PCLDetection detection;
