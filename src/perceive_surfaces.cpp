@@ -115,6 +115,85 @@ void moving_least_squares(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::
   // *output_cloud = *smoothed_cloud; // replace the original filtered cloud
 }
 
+void all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
+                   pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
+                   std::vector<DetectedPlane>& planes_info,
+                   bool show_plane = true,
+                   bool aligned_plane = false,
+                   int max_planes = 10,
+                   int min_inliers = 100,
+                   bool horizontal_only = false)
+{
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_remaining(new pcl::PointCloud<pcl::PointXYZ>(*input_cloud));
+  pcl::ExtractIndices<pcl::PointXYZ> extractor;
+  pcl::SACSegmentation<pcl::PointXYZ> seg;
+
+  seg.setOptimizeCoefficients(true);
+  seg.setModelType(pcl::SACMODEL_PLANE);
+  seg.setMethodType(pcl::SAC_RANSAC);
+  seg.setMaxIterations(100);
+  seg.setDistanceThreshold(0.005);
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr all_planes(new pcl::PointCloud<pcl::PointXYZ>);
+
+  for (int i = 0; i < max_planes; ++i)
+  {
+    pcl::PointIndices::Ptr inliers_plane(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coefficients_plane(new pcl::ModelCoefficients);
+
+    seg.setInputCloud(cloud_remaining);
+    seg.segment(*inliers_plane, *coefficients_plane);
+
+    if (inliers_plane->indices.size() < min_inliers)
+      break; // Stop if too few inliers
+
+    // for filtering horizontal  planes
+    float a = coefficients_plane->values[0];
+    float b = coefficients_plane->values[1];
+    float c = coefficients_plane->values[2];
+    Eigen::Vector3f normal(a, b, c);
+    normal.normalize();
+
+    float dot_with_y = std::abs(normal.dot(Eigen::Vector3f::UnitY()));
+    float dot_with_z = std::abs(normal.dot(Eigen::Vector3f::UnitZ()));
+
+    bool is_horizontal = (dot_with_y > 0.2f);
+    // bool is_horizontal = (dot_with_z > 0.4f);
+
+    if (horizontal_only && !is_horizontal) {
+      std::cout << "Skipping non-horizontal plane.\n";
+    } else {
+      // Extract current plane
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
+      extractor.setInputCloud(cloud_remaining);
+      extractor.setIndices(inliers_plane);
+      extractor.setNegative(false); // extract plane
+      extractor.filter(*cloud_plane);
+
+      *all_planes += *cloud_plane; // accumulate planes if show_plane == true
+    
+      // Store plane info
+      DetectedPlane plane;
+      plane.name = "plane_" + std::to_string(i);
+      pcl::getMinMax3D(*cloud_plane, plane.min_pt, plane.max_pt);
+      planes_info.push_back(plane);
+    }
+
+    // Remove current plane from remaining cloud
+    extractor.setNegative(true);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_temp(new pcl::PointCloud<pcl::PointXYZ>);
+    extractor.filter(*cloud_temp);
+    cloud_remaining.swap(cloud_temp);
+  }
+
+  if (show_plane)
+    *output_cloud = *all_planes;
+  else
+    *output_cloud = *cloud_remaining;
+
+  // align plane to horizontal plane
+}
+
 void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
                         pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
                         bool show_plane = true, 
@@ -137,12 +216,8 @@ void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
   pcl::ExtractIndices<pcl::PointXYZ> neg_plane_extracted;
   neg_plane_extracted.setInputCloud(input_cloud);
   neg_plane_extracted.setIndices(inliers_plane);
-  if(!show_plane)
-  {
-    neg_plane_extracted.setNegative(true); // removes the plane from the original point cloud
-  } else {
-    neg_plane_extracted.setNegative(false); // leaves only the plane and removes everything else
-  }
+  
+  neg_plane_extracted.setNegative(!show_plane);
   
   neg_plane_extracted.filter(*output_cloud);
 
@@ -223,7 +298,17 @@ void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud)
   std::cout << "min_pt (Z): " << min_pt.z << " meters" << std::endl;
 }
 
-void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
+void printDetectedPlane(const DetectedPlane& plane)
+{
+    std::cout << "Plane Name: " << plane.name << std::endl;
+    std::cout << "Min Point: (" << plane.min_pt.x << ", " << plane.min_pt.y << ", " << plane.min_pt.z << ")" << std::endl;
+    std::cout << "Max Point: (" << plane.max_pt.x << ", " << plane.max_pt.y << ", " << plane.max_pt.z << ")" << std::endl;
+    std::cout << "Center: (" << plane.getCenter().x << ", " << plane.getCenter().y << ", " << plane.getCenter().z << ")" << std::endl;
+    std::cout << "Dimensions: (" << plane.getDimensions().x << ", " << plane.getDimensions().y << ", " << plane.getDimensions().z << ")" << std::endl;
+    std::cout << "----------------------------------------" << std::endl;
+}
+
+void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane> planes_info)
 {
   //define the input pointcloud as a pointer
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -248,7 +333,9 @@ void process_test_pcl_data(const std::string& input_pcd, const std::string& outp
   /*
   segment plane
   */
-  plane_segmentation(cloud_filtered, cloud_filtered, true, true);
+  // plane_segmentation(cloud_filtered, cloud_filtered, true, true);
+
+  all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 3);
 
   /*
   passtrough filter for noise filtering
@@ -269,7 +356,7 @@ void process_test_pcl_data(const std::string& input_pcd, const std::string& outp
   cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
 }
 
-void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
+void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane> planes_info)
 {
   
   //define the input pointcloud as a pointer
@@ -325,7 +412,8 @@ void process_pcl_data(const std::string& input_pcd, const std::string& output_pc
 
   // moving_least_squares(cloud_filtered, cloud_filtered);
 
-  plane_segmentation(cloud_filtered, cloud_filtered);
+  // plane_segmentation(cloud_filtered, cloud_filtered);
+  all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 8, 100, false);
 
   /*
   filter out non-horizontal planes
@@ -537,20 +625,32 @@ int main(int argc, char ** argv)
   std::string output_test_pcd = path_output + std::string("filtered_test.pcd");
   std::string output_pcd = path_output + std::string("filtered_ar4_realsense.pcd");
 
+  rclcpp::init(argc, argv);
+
+  rclcpp::executors::MultiThreadedExecutor executor;
+
+  PCLDetection detection;
+
+  // async node execution
+  executor.add_node(detection.node_);
+
+  std::thread executor_thread([&executor]() { executor.spin(); });
+  executor_thread.detach();
+
   // process point cloud
-  // process_pcl_data(input_pcd, output_pcd);
-  process_test_pcl_data(input_test_pcd, output_test_pcd);
+  process_pcl_data(input_pcd, output_pcd, detection.planes_info);
+  // process_test_pcl_data(input_test_pcd, output_test_pcd);
 
-  // rclcpp::init(argc, argv);
-  // PCLDetection detection;
+  // Print out details of all segmented planes
+  // std::cout << "Total planes detected: " << detection.planes_info.size() << std::endl;
+  // for (const auto& plane : detection.planes_info) {
+  //     printDetectedPlane(plane);  // Print the details of each plane
+  // }
 
-  // rclcpp::executors::MultiThreadedExecutor executor;
 
-  // // async node execution
-  // executor.add_node(detection.node_);
 
-  // std::thread executor_thread([&executor]() { executor.spin(); });
-  // executor_thread.detach();
+
+  
 
   // /*
   // - Process PCL to find existing planes and save their dimensions and center
@@ -573,7 +673,7 @@ int main(int argc, char ** argv)
 
   // }
 
-  // rclcpp::shutdown();
+  rclcpp::shutdown();
   return 0;
 }
 

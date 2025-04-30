@@ -69,20 +69,23 @@ namespace pcl_detection
             node_options.use_intra_process_comms(false);
             node_ = std::make_shared<rclcpp::Node>("plane_detection_node", node_options);
 
-            moveit_visual_tools_.reset(new moveit_visual_tools::MoveItVisualTools(node_, "base_link", "/moveit_visual_markers"));
-			moveit_visual_tools_->loadPlanningSceneMonitor();
-			moveit_visual_tools_->loadMarkerPub(true);
-			moveit_visual_tools_->waitForMarkerSub();
-			moveit_visual_tools_->loadRobotStatePub("display_robot_state");
-			moveit_visual_tools_->setManualSceneUpdating();
-			moveit_visual_tools_->loadRemoteControl();
-			moveit_visual_tools_->deleteAllMarkers();
+            // moveit_visual_tools_.reset(new moveit_visual_tools::MoveItVisualTools(node_, "base_link", "/moveit_visual_markers"));
+			// moveit_visual_tools_->loadPlanningSceneMonitor();
+			// moveit_visual_tools_->loadMarkerPub(true);
+			// moveit_visual_tools_->waitForMarkerSub();
+			// moveit_visual_tools_->loadRobotStatePub("display_robot_state");
+			// moveit_visual_tools_->setManualSceneUpdating();
+			// moveit_visual_tools_->loadRemoteControl();
+			// moveit_visual_tools_->deleteAllMarkers();
         }
 
         rclcpp::NodeOptions node_options;
 		rclcpp::Node::SharedPtr node_;
 
         moveit_visual_tools::MoveItVisualToolsPtr moveit_visual_tools_;
+
+        // protected:
+        std::vector<DetectedPlane> planes_info;
 
         // void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd);
 
