@@ -19,6 +19,8 @@
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/voxel_grid.h>
 
+#include <pcl/surface/mls.h>
+
 #include <rclcpp/rclcpp.hpp>
 #include <cstdio>
 
