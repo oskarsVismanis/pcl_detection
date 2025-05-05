@@ -2,9 +2,11 @@
 
 using namespace std::chrono_literals;
 
+const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
+
 namespace pcl_detection
 {
-	PCLDetection::PCLDetection(const rclcpp::Node::SharedPtr& node) : node_(node)
+	PCLDetection::PCLDetection(const rclcpp::Node::SharedPtr& node, tfBufferPtr& tf_buffer_ptr) : node_(node), tf_buffer_ptr_(tf_buffer_ptr)
 	{
 
 	}
@@ -96,7 +98,7 @@ namespace pcl_detection
 
 	void PCLDetection::all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
 		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
-		std::vector<DetectedPlane>& planes_info,
+		// std::vector<DetectedPlane>& planes_info,
 		bool show_plane,
 		bool aligned_plane,
 		int max_planes,
@@ -152,10 +154,11 @@ namespace pcl_detection
 				*all_planes += *cloud_plane; // accumulate planes if show_plane == true
 
 				// Store plane info
-				DetectedPlane plane;
-				plane.name = "plane_" + std::to_string(i);
-				pcl::getMinMax3D(*cloud_plane, plane.min_pt, plane.max_pt);
-				planes_info.push_back(plane);
+				// DetectedPlane plane;
+				// plane.name = "plane_" + std::to_string(i);
+				// pcl::getMinMax3D(*cloud_plane, plane.min_pt, plane.max_pt);
+				// planes_info.push_back(plane);
+				addDetectedPlane(cloud_plane);
 
 				// printDetectedPlane(planes_info[i]);
 			}
@@ -173,6 +176,34 @@ namespace pcl_detection
 			*output_cloud = *cloud_remaining;
 
 		// align plane to horizontal plane
+	}
+
+	void PCLDetection::addDetectedPlane(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane)
+	{
+		DetectedPlane new_plane;
+		pcl::getMinMax3D(*cloud_plane, new_plane.min_pt, new_plane.max_pt);
+		pcl::PointXYZ c1 = new_plane.getCenter();
+
+		float overlap_threshold = 0.01f; // Adjust as needed
+
+		std::cout << "Adding plane" << std::endl;
+
+		for (const auto& existing_plane : planes_info)
+    {
+        pcl::PointXYZ c2 = existing_plane.getCenter();
+
+        if (std::abs(c1.x - c2.x) < overlap_threshold &&
+            std::abs(c1.y - c2.y) < overlap_threshold &&
+            std::abs(c1.z - c2.z) < overlap_threshold)
+        {
+            // Overlapping plane — do not add
+            return;
+        }
+    }
+
+    // Assign name using the current size of planes_info
+    new_plane.name = "plane_" + std::to_string(planes_info.size());
+    planes_info.push_back(new_plane);
 	}
 
 	void PCLDetection::estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud)
@@ -206,7 +237,7 @@ namespace pcl_detection
 			std::cout << "----------------------------------------" << std::endl;
 	}
 
-	void PCLDetection::process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info)
+	void PCLDetection::process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 	{
 		//define the input pointcloud as a pointer
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -233,7 +264,7 @@ namespace pcl_detection
 		*/
 		// plane_segmentation(cloud_filtered, cloud_filtered, true, true);
 
-		all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 3);
+		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 3, 100, false);
 
 		/*
 		passtrough filter for noise filtering
@@ -247,14 +278,14 @@ namespace pcl_detection
 		/*
 		estimate plane bounding box
 		*/
-		estimate_plane_bbox(cloud_filtered);
+		// estimate_plane_bbox(cloud_filtered);
 
 		// save the filtered .pcd file
 		pcl::PCDWriter cloud_writer;
 		cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
 	}
 
-	void PCLDetection::process_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info)
+	void PCLDetection::process_pcl_data(const std::string& input_pcd, const std::string& output_pcd)
 	{
 		
 		//define the input pointcloud as a pointer
@@ -311,7 +342,7 @@ namespace pcl_detection
 		// moving_least_squares(cloud_filtered, cloud_filtered);
 
 		// plane_segmentation(cloud_filtered, cloud_filtered);
-		all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 8, 100, false);
+		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 8, 100, false);
 
 		/*
 		filter out non-horizontal planes
@@ -367,6 +398,85 @@ namespace pcl_detection
 		pcl::PCDWriter cloud_writer;
 		cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
 		// cloud_writer.write<pcl::PointXYZ>(output_pcd, *smoothed_cloud, false);
+	}
+
+	geometry_msgs::msg::Point PCLDetection::transformPointToFrame(
+    const geometry_msgs::msg::Point& point_in,
+    const std::string& from_frame,
+    const std::string& to_frame,
+    rclcpp::Time stamp)
+	{
+		// static tf2_ros::Buffer tf_buffer(node_->get_clock());
+    // static tf2_ros::TransformListener tf_listener(tf_buffer);
+		// tf_buffer_ptr_(node_->get_clock());
+
+		geometry_msgs::msg::TransformStamped transform;
+
+    geometry_msgs::msg::PointStamped input_stamped, output_stamped;
+    input_stamped.header.stamp = stamp;
+    input_stamped.header.frame_id = from_frame;
+    input_stamped.point = point_in;
+
+    try {
+        // output_stamped = tf_buffer_ptr_.transform(input_stamped, to_frame, tf2::durationFromSec(0.5));
+				transform = tf_buffer_ptr_->lookupTransform(to_frame, from_frame, tf2::TimePointZero);
+				tf2::doTransform(input_stamped, output_stamped, transform);
+        return output_stamped.point;
+    } catch (const tf2::TransformException& ex) {
+        RCLCPP_WARN(LOGGER, "Transform failed: %s", ex.what());
+        return geometry_msgs::msg::Point(); // Return zero point if transform fails
+    }
+	}
+
+	void PCLDetection::publish_center_link(const DetectedPlane& plane)
+	{
+		pcl::PointXYZ center = plane.getCenter();
+
+		// pcl::PointXYZ min_pt, max_pt;
+	
+		// min_pt.x = -0.692448;
+		// max_pt.x = 0.69222;
+	
+		// min_pt.y = -0.90901;
+		// max_pt.y = -0.309027;
+	
+		// // double x = (min_pt.x + max_pt.x) / 2.0;
+		// double x = center.x;
+		// // double y = (min_pt.y + max_pt.y) / 2.0;
+		// double y = center.y;
+		// // double z = 0.80;
+		// double z = center.z - 0.5;
+
+		geometry_msgs::msg::Point point_in;
+    point_in.x = center.x;
+    point_in.y = center.y;
+    point_in.z = center.z;
+
+		geometry_msgs::msg::Point point_in_map = transformPointToFrame(point_in, "base_link", "map", node_->get_clock()->now());
+
+		static tf2_ros::StaticTransformBroadcaster static_broadcaster(node_);
+	
+		geometry_msgs::msg::TransformStamped static_transform;
+    static_transform.header.stamp = node_->get_clock()->now();
+    static_transform.header.frame_id = "map";
+    static_transform.child_frame_id = plane.name;
+		
+    static_transform.transform.translation.x = point_in_map.x;
+    static_transform.transform.translation.y = point_in_map.y;
+    static_transform.transform.translation.z = point_in_map.z - 0.5;
+	
+		static_transform.transform.rotation.x = 0.0;
+		static_transform.transform.rotation.y = 0.0;
+		static_transform.transform.rotation.z = 0.0;
+		static_transform.transform.rotation.w = 1.0;
+	
+		static_broadcaster.sendTransform(static_transform);
+	
+    RCLCPP_INFO(LOGGER, "Published static transform from map to %s at (%.3f, %.3f, %.3f)",
+                plane.name.c_str(),
+                static_transform.transform.translation.x,
+                static_transform.transform.translation.y,
+                static_transform.transform.translation.z);
 	}
 
 

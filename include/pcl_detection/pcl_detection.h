@@ -28,9 +28,14 @@
 #include <moveit_visual_tools/moveit_visual_tools.h>
 
 #include <tf2_ros/static_transform_broadcaster.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/point_stamped.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
+
+typedef boost::shared_ptr<tf2_ros::Buffer> tfBufferPtr;
 
 namespace pcl_detection
 {
@@ -54,9 +59,9 @@ namespace pcl_detection
         // Convenience method to get dimensions
         pcl::PointXYZ getDimensions() const {
             return pcl::PointXYZ{
-            std::abs(max_pt.x - min_pt.x),
-            std::abs(max_pt.y - min_pt.y),
-            std::abs(max_pt.z - min_pt.z)
+            std::abs(max_pt.x - min_pt.x), // length
+            std::abs(max_pt.y - min_pt.y), // width
+            std::abs(max_pt.z - min_pt.z)  // height
             };
         }
     };
@@ -64,7 +69,7 @@ namespace pcl_detection
     class PCLDetection
     {
     public:
-        PCLDetection(const rclcpp::Node::SharedPtr& node);
+        PCLDetection(const rclcpp::Node::SharedPtr& node, tfBufferPtr& tf_buffer_ptr);
         // {
 
 
@@ -82,6 +87,9 @@ namespace pcl_detection
 
         rclcpp::NodeOptions node_options;
 		rclcpp::Node::SharedPtr node_;
+
+        // tfBufferPtr tf_buffer_ptr;
+        tfBufferPtr& tf_buffer_ptr_;
 
         moveit_visual_tools::MoveItVisualToolsPtr moveit_visual_tools_;
 
@@ -111,20 +119,34 @@ namespace pcl_detection
 
         void all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
             pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
-            std::vector<DetectedPlane>& planes_info,
+            // std::vector<DetectedPlane>& planes_info,
             bool show_plane = true,
             bool aligned_plane = false,
             int max_planes = 10,
             int min_inliers = 100,
             bool horizontal_only = false);
 
+        void addDetectedPlane(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane);
+
         void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud);
 
         void printDetectedPlane(const DetectedPlane& plane);
 
-        void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info);
+        void process_test_pcl_data(
+            const std::string& input_pcd, 
+            const std::string& output_pcd);
 
-        void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info);
+        void process_pcl_data(
+            const std::string& input_pcd, 
+            const std::string& output_pcd);
+
+        geometry_msgs::msg::Point transformPointToFrame(
+            const geometry_msgs::msg::Point& point_in,
+            const std::string& from_frame,
+            const std::string& to_frame,
+            rclcpp::Time stamp);
+
+        void publish_center_link(const DetectedPlane& plane);
 
     }; // class PCLDetection
 

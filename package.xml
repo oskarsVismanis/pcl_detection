@@ -19,6 +19,8 @@
   <depend>sensor_msgs</depend>
   <depend>moveit_ros_planning_interface</depend>
   <depend>moveit_visual_tools</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
   <depend>pcl_ros</depend>
 
   <test_depend>ament_lint_auto</test_depend>

@@ -1,5 +1,8 @@
 #include <pcl_detection/pcl_detection.h>
 
+typedef boost::shared_ptr<tf2_ros::TransformListener> tfListenerPtr;
+typedef boost::shared_ptr<tf2_ros::Buffer> tfBufferPtr;
+
 using namespace pcl_detection;
 
 // const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
@@ -182,51 +185,6 @@ void publish_plane_center(
               parent_frame.c_str(), child_frame.c_str(), center_x, center_y, center_z);
 }
 
-void publish_center_link(
-  rclcpp::Node::SharedPtr node
-  // , 
-  // pcl::PointXYZ min_pt, 
-  // pcl::PointXYZ max_pt)
-  )
-{
-  pcl::PointXYZ min_pt, max_pt;
-
-  min_pt.x = -0.692448;
-  max_pt.x = 0.69222;
-
-  min_pt.y = -0.90901;
-  max_pt.y = -0.309027;
-
-  double x = (min_pt.x + max_pt.x) / 2.0;
-  double y = (min_pt.y + max_pt.y) / 2.0;
-  double z = 0.80;
-
-  static tf2_ros::StaticTransformBroadcaster static_broadcaster(node);
-
-  geometry_msgs::msg::TransformStamped static_transform;
-
-  const std::string parent_frame = "map";
-  const std::string child_frame = "collision_center";
-
-  static_transform.header.stamp = node->get_clock()->now();
-  static_transform.header.frame_id = parent_frame;
-  static_transform.child_frame_id = child_frame;
-
-  static_transform.transform.translation.x = x;
-  static_transform.transform.translation.y = y;
-  static_transform.transform.translation.z = z;
-
-  static_transform.transform.rotation.x = 0.0;
-  static_transform.transform.rotation.y = 0.0;
-  static_transform.transform.rotation.z = 0.0;
-  static_transform.transform.rotation.w = 1.0;
-
-  static_broadcaster.sendTransform(static_transform);
-
-  RCLCPP_INFO(node->get_logger(), "Published static transform from %s to %s at (%.3f, %.3f, %.3f)",
-              parent_frame.c_str(), child_frame.c_str(), x, y, z);
-}
-
 int main(int argc, char ** argv)
 {
   // load [test] point cloud 
@@ -257,11 +215,17 @@ int main(int argc, char ** argv)
   std::thread executor_thread([&executor]() { executor.spin(); });
   executor_thread.detach();
 
-  PCLDetection detection(node_);
+  tfBufferPtr tf_buffer_ptr;
+  tfListenerPtr tf_listener_ptr;
+
+  tf_buffer_ptr = tfBufferPtr(new tf2_ros::Buffer(node_->get_clock()));
+  tf_listener_ptr = tfListenerPtr(new tf2_ros::TransformListener(*tf_buffer_ptr));
+
+  PCLDetection detection(node_, tf_buffer_ptr);
 
   // process point cloud
-  // process_pcl_data(input_pcd, output_pcd, detection.planes_info);
-  detection.process_test_pcl_data(input_test_pcd, output_test_pcd, detection.planes_info);
+  // process_pcl_data(input_pcd, output_pcd);
+  detection.process_test_pcl_data(input_test_pcd, output_test_pcd);
 
   // std::cout << "Printing detected planes: ";
   // detection.printDetectedPlane(detection.planes_info[0]);
@@ -271,6 +235,11 @@ int main(int argc, char ** argv)
   for (const auto& plane : detection.planes_info) {
       detection.printDetectedPlane(plane);  // Print the details of each plane
   }
+
+  std::cout << "Publishing plane centers as links" << std::endl;
+  for (const auto& plane : detection.planes_info) {
+    detection.publish_center_link(plane);  // Print the details of each plane
+}
 
   // /*
   // - Process PCL to find existing planes and save their dimensions and center
