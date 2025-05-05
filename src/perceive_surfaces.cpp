@@ -149,42 +149,6 @@ void publish_collision_plane(
 
 }
 
-void publish_plane_center(
-  rclcpp::Node::SharedPtr node, 
-  DetectedPlane plane)
-{
-  static tf2_ros::StaticTransformBroadcaster static_broadcaster(node);
-  geometry_msgs::msg::TransformStamped static_transform;
-
-  const std::string parent_frame = "map";
-  const std::string child_frame = plane.name;
-
-  static_transform.header.stamp = node->get_clock()->now();
-  static_transform.header.frame_id = parent_frame;
-  static_transform.child_frame_id = child_frame;
-
-  // check the height
-  double center_x = plane.getCenter().x; // (min_pt.x + max_pt.x) / 2.0;
-  double center_y = plane.getCenter().y; // (min_pt.y + max_pt.y) / 2.0;
-  double center_z = plane.getCenter().z; // (min_pt.z + max_pt.z) / 2.0;
-
-  // a transformation from camera to map needs to be done here
-
-  static_transform.transform.translation.x = center_x;
-  static_transform.transform.translation.y = center_y;
-  static_transform.transform.translation.z = center_z;
-
-  static_transform.transform.rotation.x = 0.0;
-  static_transform.transform.rotation.y = 0.0;
-  static_transform.transform.rotation.z = 0.0;
-  static_transform.transform.rotation.w = 1.0;
-
-  static_broadcaster.sendTransform(static_transform);
-
-  RCLCPP_INFO(node->get_logger(), "Published static transform from %s to %s at (%.3f, %.3f, %.3f)",
-              parent_frame.c_str(), child_frame.c_str(), center_x, center_y, center_z);
-}
-
 int main(int argc, char ** argv)
 {
   // load [test] point cloud 
@@ -239,7 +203,7 @@ int main(int argc, char ** argv)
   std::cout << "Publishing plane centers as links" << std::endl;
   for (const auto& plane : detection.planes_info) {
     detection.publish_center_link(plane);  // Print the details of each plane
-}
+  }
 
   // /*
   // - Process PCL to find existing planes and save their dimensions and center
@@ -257,10 +221,10 @@ int main(int argc, char ** argv)
   // RCLCPP_INFO(detection.node_->get_logger(), "Run publish_center_link");
   // publish_center_link(detection.node_);
 
-  // while(rclcpp::ok())
-  // {
-
-  // }
+  while(rclcpp::ok())
+  {
+    detection.checkProximityToPlanes(0.2);
+  }
 
   rclcpp::shutdown();
   return 0;

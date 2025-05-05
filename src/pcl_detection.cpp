@@ -264,7 +264,7 @@ namespace pcl_detection
 		*/
 		// plane_segmentation(cloud_filtered, cloud_filtered, true, true);
 
-		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 3, 100, false);
+		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 3, 100, true);
 
 		/*
 		passtrough filter for noise filtering
@@ -463,7 +463,7 @@ namespace pcl_detection
 		
     static_transform.transform.translation.x = point_in_map.x;
     static_transform.transform.translation.y = point_in_map.y;
-    static_transform.transform.translation.z = point_in_map.z - 0.5;
+    static_transform.transform.translation.z = point_in_map.z - 0.8;
 	
 		static_transform.transform.rotation.x = 0.0;
 		static_transform.transform.rotation.y = 0.0;
@@ -478,6 +478,53 @@ namespace pcl_detection
                 static_transform.transform.translation.y,
                 static_transform.transform.translation.z);
 	}
+
+void PCLDetection::checkProximityToPlanes(double threshold)
+{
+    for (const auto& plane : planes_info)
+    {
+        geometry_msgs::msg::TransformStamped tf_robot_to_plane;
+        try {
+            tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
+                plane.name, "base_link", tf2::TimePointZero);
+
+            double x = tf_robot_to_plane.transform.translation.x;
+            double y = tf_robot_to_plane.transform.translation.y;
+
+            // Calculate distance from robot to the nearest bounding box edge
+            double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
+            double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
+
+            if (x >= plane.min_pt.x && x <= plane.max_pt.x &&
+                y >= plane.min_pt.y && y <= plane.max_pt.y)
+            {
+                // Inside the bounding box, check proximity to edges
+                if (x_dist < threshold || y_dist < threshold) {
+                    RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
+                                plane.name.c_str(), x_dist, y_dist);
+                    // TODO: don't cancel if the robot is moving in the opposite direction!
+										cancelMoveGoal();
+                }
+            }
+
+        } catch (const tf2::TransformException& ex) {
+            RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
+        }
+    }
+}
+
+void PCLDetection::cancelMoveGoal()
+{
+	nav2_msgs::action::NavigateToPose::Goal goal;
+
+	auto action_client = rclcpp_action::create_client<nav2_msgs::action::NavigateToPose>(node_, "navigate_to_pose");
+
+	if (action_client->wait_for_action_server()) {
+		RCLCPP_INFO(LOGGER, "Canceling move goal!");
+    action_client->async_cancel_all_goals();
+	}
+
+}
 
 
 } // namespace pcl_detection

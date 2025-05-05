@@ -20,6 +20,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_visual_tools REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(nav2_msgs REQUIRED)
 
 add_library(pcl_detection src/pcl_detection.cpp)
 
@@ -44,6 +45,7 @@ ament_target_dependencies(
   moveit_visual_tools
   tf2
   tf2_ros
+  nav2_msgs
   pcl_ros
   pcl_msgs
   pcl_conversions

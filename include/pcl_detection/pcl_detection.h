@@ -22,6 +22,7 @@
 #include <pcl/surface/mls.h>
 
 #include <rclcpp/rclcpp.hpp>
+#include "rclcpp_action/rclcpp_action.hpp"
 #include <cstdio>
 
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
@@ -32,6 +33,8 @@
 #include <tf2_ros/transform_listener.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/point_stamped.hpp>
+
+#include <nav2_msgs/nav2_msgs/action/navigate_to_pose.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -147,6 +150,10 @@ namespace pcl_detection
             rclcpp::Time stamp);
 
         void publish_center_link(const DetectedPlane& plane);
+
+        void checkProximityToPlanes(double threshold);
+
+        void cancelMoveGoal();
 
     }; // class PCLDetection
 
