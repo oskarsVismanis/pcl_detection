@@ -1,198 +1,8 @@
-// #include <iostream>
-// #include <filesystem>
-// #include <math.h>
-
-// #include <pcl/common/common.h>
-// #include <pcl/common/transforms.h>
-// #include <pcl/ModelCoefficients.h>
-// #include <pcl/io/pcd_io.h>
-// #include <pcl/point_types.h>
-// #include <pcl/filters/extract_indices.h>
-// #include <pcl/filters/passthrough.h>
-// #include <pcl/filters/statistical_outlier_removal.h>
-// #include <pcl/features/normal_3d.h>
-// #include <pcl/sample_consensus/method_types.h>
-// #include <pcl/sample_consensus/model_types.h>
-// #include <pcl/segmentation/sac_segmentation.h>
-// #include <pcl/filters/voxel_grid.h>
-
-// #include <rclcpp/rclcpp.hpp>
-// #include <cstdio>
-
-// #include <moveit/planning_scene_interface/planning_scene_interface.h>
-// #include <moveit_visual_tools/moveit_visual_tools.h>
-
-// #include <tf2_ros/static_transform_broadcaster.h>
-// #include <geometry_msgs/msg/transform_stamped.hpp>
-
-// #include "ament_index_cpp/get_package_share_directory.hpp"
-
 #include <pcl_detection/pcl_detection.h>
 
 using namespace pcl_detection;
 
 // const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
-
-void voxel_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, float leafsize)
-{
-  pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
-  voxel_filter.setInputCloud(input_cloud);
-  voxel_filter.setLeafSize(leafsize, leafsize, leafsize); // play with (the higher, the larger the distance between the points)
-  voxel_filter.filter(*output_cloud);
-}
-
-void passthrough_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
-                        pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
-                        const std::map<std::string, std::pair<float, float>>& limits)
-{
-  pcl::PassThrough<pcl::PointXYZ> pass;
-
-  for (const auto& [axis, range] : limits) {
-    pass.setFilterFieldName(axis);
-    pass.setFilterLimits(range.first, range.second);
-    pass.setInputCloud(input_cloud);
-    pass.filter(*output_cloud);
-  }
-
-}
-
-void statistical_outlier_removal(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
-{
-  pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
-  sor.setInputCloud(input_cloud);
-  sor.setMeanK(150);
-  sor.setStddevMulThresh(0.5);
-
-  // show outliers
-  sor.setNegative (true);
-  sor.filter (*output_cloud);
-  pcl::PCDWriter writer;
-  writer.write<pcl::PointXYZ> ("/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/scene.pcd", *output_cloud, false);
-  
-  sor.setNegative(false);
-  sor.filter(*output_cloud);
-}
-
-void moving_least_squares(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
-{
-  
-  // Moving Least Squares (MLS) filter (method 2) https://pcl.readthedocs.io/projects/tutorials/en/latest/resampling.html
-
-  pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-
-  // Output has the PointNormal type in order to store the normals calculated by MLS
-  pcl::PointCloud<pcl::PointNormal> mls_points;
-
-  // Init object (second point type is for the normals, even if unused)
-  pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointNormal> mls;
-
-  mls.setComputeNormals(true);
-
-  // Set parameters
-  mls.setInputCloud(input_cloud);
-  mls.setPolynomialOrder(2);
-  mls.setSearchMethod(tree);
-  mls.setSearchRadius(0.03);
-
-  // Reconstruct
-  mls.process(mls_points);
-
-  // Save output
-  pcl::io::savePCDFile("/home/oskars/workspace/pcl_ws/src/pcl_detection/data/outputs/bun0-mls.pcd", mls_points);
-
-  // convert PointNormal to PointXYZ
-
-  // pcl::PointCloud<pcl::PointXYZ>::Ptr smoothed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  // smoothed_cloud->points.reserve(mls_points.points.size());
-
-  // for (const auto& pt : mls_points.points) {
-  //     smoothed_cloud->points.emplace_back(pt.x, pt.y, pt.z);
-  // }
-  // smoothed_cloud->width = smoothed_cloud->points.size();
-  // smoothed_cloud->height = 1;
-  // smoothed_cloud->is_dense = true;
-
-  // *output_cloud = *smoothed_cloud; // replace the original filtered cloud
-}
-
-void all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
-                   pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
-                   std::vector<DetectedPlane>& planes_info,
-                   bool show_plane = true,
-                   bool aligned_plane = false,
-                   int max_planes = 10,
-                   int min_inliers = 100,
-                   bool horizontal_only = false)
-{
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_remaining(new pcl::PointCloud<pcl::PointXYZ>(*input_cloud));
-  pcl::ExtractIndices<pcl::PointXYZ> extractor;
-  pcl::SACSegmentation<pcl::PointXYZ> seg;
-
-  seg.setOptimizeCoefficients(true);
-  seg.setModelType(pcl::SACMODEL_PLANE);
-  seg.setMethodType(pcl::SAC_RANSAC);
-  seg.setMaxIterations(100);
-  seg.setDistanceThreshold(0.005);
-
-  pcl::PointCloud<pcl::PointXYZ>::Ptr all_planes(new pcl::PointCloud<pcl::PointXYZ>);
-
-  for (int i = 0; i < max_planes; ++i)
-  {
-    pcl::PointIndices::Ptr inliers_plane(new pcl::PointIndices);
-    pcl::ModelCoefficients::Ptr coefficients_plane(new pcl::ModelCoefficients);
-
-    seg.setInputCloud(cloud_remaining);
-    seg.segment(*inliers_plane, *coefficients_plane);
-
-    if (inliers_plane->indices.size() < min_inliers)
-      break; // Stop if too few inliers
-
-    // for filtering horizontal  planes
-    float a = coefficients_plane->values[0];
-    float b = coefficients_plane->values[1];
-    float c = coefficients_plane->values[2];
-    Eigen::Vector3f normal(a, b, c);
-    normal.normalize();
-
-    float dot_with_y = std::abs(normal.dot(Eigen::Vector3f::UnitY()));
-    float dot_with_z = std::abs(normal.dot(Eigen::Vector3f::UnitZ()));
-
-    bool is_horizontal = (dot_with_y > 0.2f);
-    // bool is_horizontal = (dot_with_z > 0.4f);
-
-    if (horizontal_only && !is_horizontal) {
-      std::cout << "Skipping non-horizontal plane.\n";
-    } else {
-      // Extract current plane
-      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZ>);
-      extractor.setInputCloud(cloud_remaining);
-      extractor.setIndices(inliers_plane);
-      extractor.setNegative(false); // extract plane
-      extractor.filter(*cloud_plane);
-
-      *all_planes += *cloud_plane; // accumulate planes if show_plane == true
-    
-      // Store plane info
-      DetectedPlane plane;
-      plane.name = "plane_" + std::to_string(i);
-      pcl::getMinMax3D(*cloud_plane, plane.min_pt, plane.max_pt);
-      planes_info.push_back(plane);
-    }
-
-    // Remove current plane from remaining cloud
-    extractor.setNegative(true);
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_temp(new pcl::PointCloud<pcl::PointXYZ>);
-    extractor.filter(*cloud_temp);
-    cloud_remaining.swap(cloud_temp);
-  }
-
-  if (show_plane)
-    *output_cloud = *all_planes;
-  else
-    *output_cloud = *cloud_remaining;
-
-  // align plane to horizontal plane
-}
 
 void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
                         pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
@@ -276,200 +86,6 @@ void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
 // {
   
 // }
-
-void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud)
-{
-  pcl::PointXYZ min_pt, max_pt;
-  pcl::getMinMax3D(*input_cloud, min_pt, max_pt);
-  double length = max_pt.x - min_pt.x;
-  double width  = max_pt.y - min_pt.y;
-  double height = max_pt.z - min_pt.z;
-
-  std::cout << "Bounding Box Dimensions:" << std::endl;
-  std::cout << "Length (X): " << length << " meters" << std::endl;
-  std::cout << "Width  (Y): " << width  << " meters" << std::endl;
-  std::cout << "Height (Z): " << height << " meters" << std::endl;
-
-  std::cout << "max_pt (X): " << max_pt.x << " meters" << std::endl;
-  std::cout << "min_pt (x): " << min_pt.x << " meters" << std::endl;
-  std::cout << "max_pt (Y): " << max_pt.y << " meters" << std::endl;
-  std::cout << "min_pt (Y): " << min_pt.y << " meters" << std::endl;
-  std::cout << "max_pt (X): " << max_pt.z << " meters" << std::endl;
-  std::cout << "min_pt (Z): " << min_pt.z << " meters" << std::endl;
-}
-
-void printDetectedPlane(const DetectedPlane& plane)
-{
-    std::cout << "Plane Name: " << plane.name << std::endl;
-    std::cout << "Min Point: (" << plane.min_pt.x << ", " << plane.min_pt.y << ", " << plane.min_pt.z << ")" << std::endl;
-    std::cout << "Max Point: (" << plane.max_pt.x << ", " << plane.max_pt.y << ", " << plane.max_pt.z << ")" << std::endl;
-    std::cout << "Center: (" << plane.getCenter().x << ", " << plane.getCenter().y << ", " << plane.getCenter().z << ")" << std::endl;
-    std::cout << "Dimensions: (" << plane.getDimensions().x << ", " << plane.getDimensions().y << ", " << plane.getDimensions().z << ")" << std::endl;
-    std::cout << "----------------------------------------" << std::endl;
-}
-
-void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane> planes_info)
-{
-  //define the input pointcloud as a pointer
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-  //read .pcd file  
-  pcl::PCDReader cloud_reader;
-  cloud_reader.read(input_pcd, *cloud);
-
-  //define the output pointcloud as a pointer
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-
-  /*
-  voxel filter (downsampling)
-  */
-  voxel_filter(cloud, cloud_filtered, 0.0001);
-
-
-  /*
-  some step to align the point cloud to some normal orientation
-  */
-
-  /*
-  segment plane
-  */
-  // plane_segmentation(cloud_filtered, cloud_filtered, true, true);
-
-  all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 3);
-
-  /*
-  passtrough filter for noise filtering
-  */
-  std::map<std::string, std::pair<float, float>> limits = {
-    // {"y", {-0.4f, 0.5f}},
-    {"z", {0.5f, 1.05f}}
-  };
-  // passthrough_filter(cloud_filtered, cloud_filtered, limits);
-
-  /*
-  estimate plane bounding box
-  */
-  estimate_plane_bbox(cloud_filtered);
-
-  // save the filtered .pcd file
-  pcl::PCDWriter cloud_writer;
-  cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
-}
-
-void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane> planes_info)
-{
-  
-  //define the input pointcloud as a pointer
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
-
-  //read .pcd file  
-  pcl::PCDReader cloud_reader;
-  cloud_reader.read(input_pcd, *cloud);
-
-  //define the output pointcloud as a pointer
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-
-  /*
-  voxel filter (downsampling)
-  */
-  voxel_filter(cloud, cloud_filtered, 0.005);
-
-
-  /*
-  some step to align the point cloud to some normal orientation
-  */
-
-  /*
-  passtrough filter for noise filtering
-  */
-  std::map<std::string, std::pair<float, float>> limits = {
-    {"y", {-0.4f, 0.5f}},
-    {"z", {0.5f, 2.0f}}
-  };
-
-  passthrough_filter(cloud_filtered, cloud_filtered, limits);
-
-  /*
-  statistical outlier filter
-  */
-  // statistical_outlier_removal(cloud_filtered, cloud_filtered);
-
-  /*
-  *Stretch* the planes to remove ripples
-  */
-    // Moving Least Squares (MLS) filter (method 1)
-  // pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointXYZ> mls;
-  // mls.setInputCloud(cloud_filtered);
-  // mls.setSearchRadius(0.04); // adjust based on your data scale
-  // mls.setPolynomialOrder(1); // quadratic surface fit
-  // mls.setUpsamplingMethod(pcl::MovingLeastSquares<pcl::PointXYZ, pcl::PointXYZ>::NONE);
-
-  // pcl::PointCloud<pcl::PointXYZ>::Ptr smoothed_cloud(new pcl::PointCloud<pcl::PointXYZ>);
-  // mls.process(*smoothed_cloud);
-  // // mls.process(*cloud_filtered);
-
-  // *cloud_filtered = *smoothed_cloud;
-
-  // moving_least_squares(cloud_filtered, cloud_filtered);
-
-  // plane_segmentation(cloud_filtered, cloud_filtered);
-  all_plane_seg(cloud_filtered, cloud_filtered, planes_info, true, false, 8, 100, false);
-
-  /*
-  filter out non-horizontal planes
-  */
-
-  // if (inliers_plane->indices.size() > 0)
-  // {
-  //   float a = coefficients_plane->values[0];
-  //   float b = coefficients_plane->values[1];
-  //   float c = coefficients_plane->values[2];
-
-  //   Eigen::Vector3f normal(a, b, c);
-  //   normal.normalize();
-
-  //   // Since Y-axis is vertical, horizontal planes will have normals close to Y
-  //   float dot_with_y = std::abs(normal.dot(Eigen::Vector3f::UnitY()));
-
-  //   if (dot_with_y > 0.9) // Threshold: adjust for your tolerance
-  //   {
-  //     // Keep the horizontal plane
-  //     pcl::ExtractIndices<pcl::PointXYZ> extract;
-  //     extract.setInputCloud(cloud_filtered);
-  //     extract.setIndices(inliers_plane);
-  //     extract.setNegative(false); // Keep only the plane
-  //     extract.filter(*cloud_filtered);
-  //   }
-  //   else
-  //   {
-  //       std::cout << "Plane is not horizontal. Skipping.\n";
-  //       cloud_filtered->clear(); // Clear if plane is not horizontal
-  //   }
-  // }
-
-  /*
-  passtrough filter
-  */
-
-  // pcl::PassThrough<pcl::PointXYZ> pass;
-  // pass.setInputCloud(cloud_filtered);
-
-  // pass.setFilterFieldName("z"); // filter the z axis values
-  // pass.setFilterLimits(0.5, 1.18); // PLAY -> change the z value and check what is filtered off
-  // pass.filter(*cloud_filtered);
-
-  /*
-  Example for estimating bounding box size 
-  */
-  // estimate_plane_bbox(cloud_filtered);
-
-
-  
-  // save the filtered .pcd file
-  pcl::PCDWriter cloud_writer;
-  cloud_writer.write<pcl::PointXYZ>(output_pcd, *cloud_filtered, false);
-  // cloud_writer.write<pcl::PointXYZ>(output_pcd, *smoothed_cloud, false);
-}
 
 void publish_collision_plane(
   rclcpp::Node::SharedPtr node, 
@@ -629,28 +245,32 @@ int main(int argc, char ** argv)
 
   rclcpp::executors::MultiThreadedExecutor executor;
 
-  PCLDetection detection;
+  rclcpp::NodeOptions node_options;
+  rclcpp::Node::SharedPtr node_;
+
+  node_options.use_intra_process_comms(false);
+  node_ = std::make_shared<rclcpp::Node>("plane_detection_node", node_options);
 
   // async node execution
-  executor.add_node(detection.node_);
+  executor.add_node(node_);
 
   std::thread executor_thread([&executor]() { executor.spin(); });
   executor_thread.detach();
 
+  PCLDetection detection(node_);
+
   // process point cloud
-  process_pcl_data(input_pcd, output_pcd, detection.planes_info);
-  // process_test_pcl_data(input_test_pcd, output_test_pcd);
+  // process_pcl_data(input_pcd, output_pcd, detection.planes_info);
+  detection.process_test_pcl_data(input_test_pcd, output_test_pcd, detection.planes_info);
 
+  // std::cout << "Printing detected planes: ";
+  // detection.printDetectedPlane(detection.planes_info[0]);
   // Print out details of all segmented planes
-  // std::cout << "Total planes detected: " << detection.planes_info.size() << std::endl;
-  // for (const auto& plane : detection.planes_info) {
-  //     printDetectedPlane(plane);  // Print the details of each plane
-  // }
 
-
-
-
-  
+  std::cout << "Total planes detected: " << detection.planes_info.size() << std::endl;
+  for (const auto& plane : detection.planes_info) {
+      detection.printDetectedPlane(plane);  // Print the details of each plane
+  }
 
   // /*
   // - Process PCL to find existing planes and save their dimensions and center

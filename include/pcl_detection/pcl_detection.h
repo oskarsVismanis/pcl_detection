@@ -64,20 +64,21 @@ namespace pcl_detection
     class PCLDetection
     {
     public:
-        PCLDetection()
-        {
-            node_options.use_intra_process_comms(false);
-            node_ = std::make_shared<rclcpp::Node>("plane_detection_node", node_options);
+        PCLDetection(const rclcpp::Node::SharedPtr& node);
+        // {
 
-            // moveit_visual_tools_.reset(new moveit_visual_tools::MoveItVisualTools(node_, "base_link", "/moveit_visual_markers"));
-			// moveit_visual_tools_->loadPlanningSceneMonitor();
-			// moveit_visual_tools_->loadMarkerPub(true);
-			// moveit_visual_tools_->waitForMarkerSub();
-			// moveit_visual_tools_->loadRobotStatePub("display_robot_state");
-			// moveit_visual_tools_->setManualSceneUpdating();
-			// moveit_visual_tools_->loadRemoteControl();
-			// moveit_visual_tools_->deleteAllMarkers();
-        }
+
+        //     // moveit_visual_tools_.reset(new moveit_visual_tools::MoveItVisualTools(node_, "base_link", "/moveit_visual_markers"));
+		// 	// moveit_visual_tools_->loadPlanningSceneMonitor();
+		// 	// moveit_visual_tools_->loadMarkerPub(true);
+		// 	// moveit_visual_tools_->waitForMarkerSub();
+		// 	// moveit_visual_tools_->loadRobotStatePub("display_robot_state");
+		// 	// moveit_visual_tools_->setManualSceneUpdating();
+		// 	// moveit_visual_tools_->loadRemoteControl();
+		// 	// moveit_visual_tools_->deleteAllMarkers();
+        // }
+
+        ~PCLDetection();
 
         rclcpp::NodeOptions node_options;
 		rclcpp::Node::SharedPtr node_;
@@ -96,6 +97,34 @@ namespace pcl_detection
         //     double height = 0.01);
 
         // void publish_center_link(rclcpp::Node::SharedPtr node);
+
+        void voxel_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, float leafsize);
+
+        void passthrough_filter(
+            pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+            pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
+            const std::map<std::string, std::pair<float, float>>& limits);
+
+        void statistical_outlier_removal(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud);
+
+        void moving_least_squares(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud);
+
+        void all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
+            pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
+            std::vector<DetectedPlane>& planes_info,
+            bool show_plane = true,
+            bool aligned_plane = false,
+            int max_planes = 10,
+            int min_inliers = 100,
+            bool horizontal_only = false);
+
+        void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud);
+
+        void printDetectedPlane(const DetectedPlane& plane);
+
+        void process_test_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info);
+
+        void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd, std::vector<DetectedPlane>& planes_info);
 
     }; // class PCLDetection
 
