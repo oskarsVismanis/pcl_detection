@@ -8,7 +8,9 @@ namespace pcl_detection
 {
 	PCLDetection::PCLDetection(const rclcpp::Node::SharedPtr& node, tfBufferPtr& tf_buffer_ptr) : node_(node), tf_buffer_ptr_(tf_buffer_ptr)
 	{
-
+		  // detection.odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
+  //   "/odom", 10, std::bind(&PCLDetection::odomCallback, node_, std::placeholders::_1));
+		odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>("/mobile_base_controller/odom", 10, std::bind(&PCLDetection::odomCallback, this, std::placeholders::_1));
 	}
 
 	PCLDetection::~PCLDetection()
@@ -264,7 +266,7 @@ namespace pcl_detection
 		*/
 		// plane_segmentation(cloud_filtered, cloud_filtered, true, true);
 
-		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 3, 100, true);
+		all_plane_seg(cloud_filtered, cloud_filtered, true, false, 3, 100, false);
 
 		/*
 		passtrough filter for noise filtering
@@ -479,38 +481,122 @@ namespace pcl_detection
                 static_transform.transform.translation.z);
 	}
 
+// void PCLDetection::checkProximityToPlanes(double threshold)
+// {
+//     for (const auto& plane : planes_info)
+//     {
+//         geometry_msgs::msg::TransformStamped tf_robot_to_plane;
+//         try {
+//             tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
+//                 plane.name, "base_link", tf2::TimePointZero);
+
+//             double x = tf_robot_to_plane.transform.translation.x;
+//             double y = tf_robot_to_plane.transform.translation.y;
+
+//             // Calculate distance from robot to the nearest bounding box edge
+//             double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
+//             double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
+
+//             if (x >= plane.min_pt.x && x <= plane.max_pt.x &&
+//                 y >= plane.min_pt.y && y <= plane.max_pt.y)
+//             {
+//                 // Inside the bounding box, check proximity to edges
+//                 if (x_dist < threshold || y_dist < threshold) {
+//                     RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
+//                                 plane.name.c_str(), x_dist, y_dist);
+//                     // TODO: don't cancel if the robot is moving in the opposite direction!
+// 										cancelMoveGoal();
+//                 }
+//             }
+
+//         } catch (const tf2::TransformException& ex) {
+//             RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
+//         }
+//     }
+// }
+
 void PCLDetection::checkProximityToPlanes(double threshold)
 {
-    for (const auto& plane : planes_info)
-    {
-        geometry_msgs::msg::TransformStamped tf_robot_to_plane;
-        try {
-            tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
-                plane.name, "base_link", tf2::TimePointZero);
+	for (const auto& plane : planes_info)
+	{
+		geometry_msgs::msg::TransformStamped tf_robot_to_plane;
+		try {
+			tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
+				plane.name, "base_link", tf2::TimePointZero);
 
-            double x = tf_robot_to_plane.transform.translation.x;
-            double y = tf_robot_to_plane.transform.translation.y;
+			double x = tf_robot_to_plane.transform.translation.x;
+			double y = tf_robot_to_plane.transform.translation.y;
 
-            // Calculate distance from robot to the nearest bounding box edge
-            double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
-            double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
+			double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
+			double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
 
-            if (x >= plane.min_pt.x && x <= plane.max_pt.x &&
-                y >= plane.min_pt.y && y <= plane.max_pt.y)
-            {
-                // Inside the bounding box, check proximity to edges
-                if (x_dist < threshold || y_dist < threshold) {
-                    RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
-                                plane.name.c_str(), x_dist, y_dist);
-                    // TODO: don't cancel if the robot is moving in the opposite direction!
-										cancelMoveGoal();
-                }
-            }
+			bool inside = (x >= plane.min_pt.x && x <= plane.max_pt.x &&
+											y >= plane.min_pt.y && y <= plane.max_pt.y);
 
-        } catch (const tf2::TransformException& ex) {
-            RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
-        }
-    }
+			if (inside && (x_dist < threshold || y_dist < threshold)) {
+				// RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
+        //                         plane.name.c_str(), x_dist, y_dist);
+				if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
+					RCLCPP_WARN(LOGGER, "Too close and heading toward %s", plane.name.c_str());
+					cancelMoveGoal();
+				}
+			}
+
+		} catch (const tf2::TransformException& ex) {
+			RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
+		}
+	}
+}
+
+bool PCLDetection::isMovingTowardPlane(
+	const geometry_msgs::msg::TransformStamped& tf_robot_to_plane,
+	const DetectedPlane& plane)
+{
+	double vx = current_velocity_.linear.x;
+	double vy = current_velocity_.linear.y;
+
+	tf2::Quaternion q(
+		tf_robot_to_plane.transform.rotation.x,
+		tf_robot_to_plane.transform.rotation.y,
+		tf_robot_to_plane.transform.rotation.z,
+		tf_robot_to_plane.transform.rotation.w);
+	tf2::Matrix3x3 m(q);
+	double roll, pitch, yaw;
+	m.getRPY(roll, pitch, yaw);
+
+	double vx_in_plane = vx * cos(yaw) - vy * sin(yaw);
+	double vy_in_plane = vx * sin(yaw) + vy * cos(yaw);
+
+	double robot_x = tf_robot_to_plane.transform.translation.x;
+	double robot_y = tf_robot_to_plane.transform.translation.y;
+
+	double plane_center_x = (plane.min_pt.x + plane.max_pt.x) / 2.0;
+	double plane_center_y = (plane.min_pt.y + plane.max_pt.y) / 2.0;
+
+	double dx = plane_center_x - robot_x;
+	double dy = plane_center_y - robot_y;
+
+	double mag = std::sqrt(dx * dx + dy * dy);
+	if (mag < 1e-3) return false;
+
+	dx /= mag;
+	dy /= mag;
+
+	double velocity_mag = std::sqrt(vx_in_plane * vx_in_plane + vy_in_plane * vy_in_plane);
+	if (velocity_mag < 0.01) return false;
+
+	double dot = vx_in_plane * dx + vy_in_plane * dy;
+
+	RCLCPP_INFO(LOGGER, "Velocity in plane (%.2f, %.2f), direction (%.2f, %.2f), dot = %.2f",
+							vx_in_plane, vy_in_plane, dx, dy, dot);
+
+	return dot > 0.0;
+}
+
+void PCLDetection::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+    current_velocity_ = msg->twist.twist;
+		// RCLCPP_INFO(LOGGER, "Current velocity: vx = %.2f, vy = %.2f", current_velocity_.linear.x, current_velocity_.linear.y);
 }
 
 void PCLDetection::cancelMoveGoal()

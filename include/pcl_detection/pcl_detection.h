@@ -35,6 +35,7 @@
 #include <geometry_msgs/msg/point_stamped.hpp>
 
 #include <nav2_msgs/nav2_msgs/action/navigate_to_pose.hpp>
+#include <nav_msgs/nav_msgs/msg/odometry.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -99,6 +100,9 @@ namespace pcl_detection
         // protected:
         std::vector<DetectedPlane> planes_info;
 
+        rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+        geometry_msgs::msg::Twist current_velocity_;
+
         // void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd);
 
         // void publish_collision_plane(
@@ -152,6 +156,15 @@ namespace pcl_detection
         void publish_center_link(const DetectedPlane& plane);
 
         void checkProximityToPlanes(double threshold);
+
+        void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
+
+        bool isMovingTowardPlane(
+            const geometry_msgs::msg::TransformStamped& tf_robot_to_plane,
+            const DetectedPlane& plane);
+        // bool isMovingTowardPlane(
+        //     const geometry_msgs::msg::TransformStamped& tf_robot_to_plane,
+        //     const DetectedPlane& plane);
 
         void cancelMoveGoal();
 
