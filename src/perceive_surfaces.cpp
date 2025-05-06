@@ -90,64 +90,7 @@ void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
   
 // }
 
-void publish_collision_plane(
-  rclcpp::Node::SharedPtr node, 
-  double width = 0.599983, 
-  double length = 1.38467, 
-  double height = 0.01)
-  // , 
-  // pcl::PointXYZ min_pt, 
-  // pcl::PointXYZ max_pt) 
-{
 
-  width = 0.599983;
-  length = 1.38467;
-  height = 0.01;  // thin height to represent a plane
-
-  pcl::PointXYZ min_pt, max_pt;
-
-  min_pt.x = -0.692448;
-  max_pt.x = 0.69222;
-
-  min_pt.y = -0.90901;
-  max_pt.y = -0.309027;
-
-  double x = (min_pt.x + max_pt.x) / 2.0;
-  double y = (min_pt.y + max_pt.y) / 2.0;
-  double z = 0.80;
-
-  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
-
-  moveit_msgs::msg::CollisionObject collision_object;
-  collision_object.header.frame_id = "map";
-  collision_object.id = "segmented_plane";
-
-  // Define the box primitive
-  shape_msgs::msg::SolidPrimitive primitive;
-  primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
-  primitive.dimensions.resize(3);
-  primitive.dimensions[0] = length;
-  primitive.dimensions[1] = width;
-  primitive.dimensions[2] = height;
-
-  // Define the pose of the box
-  geometry_msgs::msg::Pose pose;
-  pose.position.x = x;
-  pose.position.y = y;
-  pose.position.z = z + height / 2.0;  // so the base is aligned with the plane
-  pose.orientation.w = 1.0;  // no rotation since the plane is already aligned horizontally
-
-  collision_object.primitives.push_back(primitive);
-  collision_object.primitive_poses.push_back(pose);
-  collision_object.operation = collision_object.ADD;
-
-  std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
-  collision_objects.push_back(collision_object);
-
-  RCLCPP_INFO(node->get_logger(), "Add an object into the world");
-  planning_scene_interface.addCollisionObjects(collision_objects);
-
-}
 
 int main(int argc, char ** argv)
 {
@@ -187,7 +130,7 @@ int main(int argc, char ** argv)
 
   PCLDetection detection(node_, tf_buffer_ptr);
 
-
+  detection.remove_collision_object();
 
   // process point cloud
   // process_pcl_data(input_pcd, output_pcd);

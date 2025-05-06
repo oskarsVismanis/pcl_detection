@@ -103,6 +103,9 @@ namespace pcl_detection
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
         geometry_msgs::msg::Twist current_velocity_;
 
+        std::unordered_set<std::string> published_planes_;
+        std::unordered_set<std::string> stopped_planes_;
+
         // void process_pcl_data(const std::string& input_pcd, const std::string& output_pcd);
 
         // void publish_collision_plane(
@@ -167,6 +170,12 @@ namespace pcl_detection
         //     const DetectedPlane& plane);
 
         void cancelMoveGoal();
+
+        void publish_collision_plane(const DetectedPlane& plane);
+
+        void remove_collision_plane(const std::string& plane_name);
+
+        void remove_collision_object();
 
     }; // class PCLDetection
 

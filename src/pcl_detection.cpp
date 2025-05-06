@@ -515,37 +515,105 @@ namespace pcl_detection
 //     }
 // }
 
+// void PCLDetection::checkProximityToPlanes(double threshold)
+// {
+//   double velocity_mag = std::hypot(current_velocity_.linear.x, current_velocity_.linear.y);
+
+//   // If robot is moving, remove all previously added collision planes
+//   if (velocity_mag > 0.05 && !stopped_planes_.empty()) {
+//     RCLCPP_INFO(LOGGER, "Robot moving again, removing all collision planes");
+//     for (const auto& plane_name : stopped_planes_) {
+//       remove_collision_plane(plane_name);
+//     }
+//     stopped_planes_.clear();
+//     return;  // Early exit, no need to check proximity
+//   }
+
+//   for (const auto& plane : planes_info)
+//   {
+//     try {
+//       auto tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
+//         plane.name, "base_link", tf2::TimePointZero);
+
+//       double x = tf_robot_to_plane.transform.translation.x;
+//       double y = tf_robot_to_plane.transform.translation.y;
+
+//       double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
+//       double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
+
+//       bool inside = (x >= plane.min_pt.x && x <= plane.max_pt.x &&
+//                      y >= plane.min_pt.y && y <= plane.max_pt.y);
+
+//       if (inside && (x_dist < threshold || y_dist < threshold)) {
+//         if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
+//           if (!stopped_planes_.count(plane.name)) {
+//             RCLCPP_WARN(LOGGER, "Too close (x: %f, y: %f) and heading toward %s", 
+// 												x_dist, y_dist, plane.name.c_str());
+//             cancelMoveGoal();
+//             publish_collision_plane(plane);
+//             stopped_planes_.insert(plane.name);
+//           }
+//         }
+//       }
+
+//     } catch (const tf2::TransformException& ex) {
+//       RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
+//     }
+//   }
+// }
+
 void PCLDetection::checkProximityToPlanes(double threshold)
 {
-	for (const auto& plane : planes_info)
-	{
-		geometry_msgs::msg::TransformStamped tf_robot_to_plane;
-		try {
-			tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
-				plane.name, "base_link", tf2::TimePointZero);
+  double velocity_mag = std::hypot(current_velocity_.linear.x, current_velocity_.linear.y);
 
-			double x = tf_robot_to_plane.transform.translation.x;
-			double y = tf_robot_to_plane.transform.translation.y;
+  // If robot is moving, remove all previously added collision planes
+  if (velocity_mag > 0.05 && !stopped_planes_.empty()) {
+    RCLCPP_INFO(LOGGER, "Robot moving again, removing all collision planes");
+    for (const auto& plane_name : stopped_planes_) {
+      remove_collision_plane(plane_name);
+    }
+    stopped_planes_.clear();
+    return;  // Early exit, no need to check proximity
+  }
 
-			double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
-			double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
+  for (const auto& plane : planes_info)
+  {
+    try {
+      auto tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
+        plane.name, "base_link", tf2::TimePointZero);
 
-			bool inside = (x >= plane.min_pt.x && x <= plane.max_pt.x &&
-											y >= plane.min_pt.y && y <= plane.max_pt.y);
+      double x = tf_robot_to_plane.transform.translation.x;
+      double y = tf_robot_to_plane.transform.translation.y;
 
-			if (inside && (x_dist < threshold || y_dist < threshold)) {
-				// RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
-        //                         plane.name.c_str(), x_dist, y_dist);
-				if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
-					RCLCPP_WARN(LOGGER, "Too close and heading toward %s", plane.name.c_str());
-					cancelMoveGoal();
-				}
-			}
+      // Check the distances to the plane's boundaries (edges)
+      double x_dist_to_min_edge = std::abs(x - plane.min_pt.x);
+      double x_dist_to_max_edge = std::abs(x - plane.max_pt.x);
+      double y_dist_to_min_edge = std::abs(y - plane.min_pt.y);
+      double y_dist_to_max_edge = std::abs(y - plane.max_pt.y);
 
-		} catch (const tf2::TransformException& ex) {
-			RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
-		}
-	}
+      // Check if the robot is within the threshold distance from any edge
+      bool too_close_x = (x_dist_to_min_edge < threshold || x_dist_to_max_edge < threshold);
+      bool too_close_y = (y_dist_to_min_edge < threshold || y_dist_to_max_edge < threshold);
+
+      // The robot should stop only if it is within the threshold distance from the plane's edges
+      if ((too_close_x || too_close_y)) {
+        if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
+          if (!stopped_planes_.count(plane.name)) {
+            RCLCPP_WARN(LOGGER, "Too close (x: %f, y: %f) and heading toward %s", 
+                        std::min(x_dist_to_min_edge, x_dist_to_max_edge), 
+                        std::min(y_dist_to_min_edge, y_dist_to_max_edge), 
+                        plane.name.c_str());
+            cancelMoveGoal();
+            publish_collision_plane(plane);
+            stopped_planes_.insert(plane.name);
+          }
+        }
+      }
+
+    } catch (const tf2::TransformException& ex) {
+      RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
+    }
+  }
 }
 
 bool PCLDetection::isMovingTowardPlane(
@@ -587,8 +655,8 @@ bool PCLDetection::isMovingTowardPlane(
 
 	double dot = vx_in_plane * dx + vy_in_plane * dy;
 
-	RCLCPP_INFO(LOGGER, "Velocity in plane (%.2f, %.2f), direction (%.2f, %.2f), dot = %.2f",
-							vx_in_plane, vy_in_plane, dx, dy, dot);
+	// RCLCPP_INFO(LOGGER, "Velocity in plane (%.2f, %.2f), direction (%.2f, %.2f), dot = %.2f",
+	// 						vx_in_plane, vy_in_plane, dx, dy, dot);
 
 	return dot > 0.0;
 }
@@ -610,6 +678,85 @@ void PCLDetection::cancelMoveGoal()
     action_client->async_cancel_all_goals();
 	}
 
+}
+
+void PCLDetection::publish_collision_plane(const DetectedPlane& plane)
+{
+
+	double length = plane.getDimensions().x;
+	double width = plane.getDimensions().y;
+	double height = plane.getDimensions().z;
+
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+
+  moveit_msgs::msg::CollisionObject collision_object;
+  collision_object.header.frame_id = "base_link";
+  collision_object.id = plane.name;
+
+  // Define the box primitive
+  shape_msgs::msg::SolidPrimitive primitive;
+  primitive.type = shape_msgs::msg::SolidPrimitive::BOX;
+  primitive.dimensions.resize(3);
+  primitive.dimensions[0] = length;
+  primitive.dimensions[1] = width;
+  primitive.dimensions[2] = height;
+
+  // Get transform from base_link to the plane
+  geometry_msgs::msg::TransformStamped tf_to_plane;
+  try {
+    tf_to_plane = tf_buffer_ptr_->lookupTransform(
+      "base_link", plane.name, tf2::TimePointZero);
+
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = tf_to_plane.transform.translation.x;
+    pose.position.y = tf_to_plane.transform.translation.y;
+    pose.position.z = tf_to_plane.transform.translation.z + height / 2.0;
+
+    pose.orientation = tf_to_plane.transform.rotation;  // preserve plane's orientation
+
+    collision_object.primitives.push_back(primitive);
+    collision_object.primitive_poses.push_back(pose);
+    collision_object.operation = collision_object.ADD;
+
+    std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
+    collision_objects.push_back(collision_object);
+
+    RCLCPP_INFO(LOGGER, "Add collision object for plane: %s", plane.name.c_str());
+    planning_scene_interface.addCollisionObjects(collision_objects);
+
+  } catch (const tf2::TransformException& ex) {
+    RCLCPP_WARN(LOGGER, "Failed to lookup transform from base_link to %s: %s",
+                plane.name.c_str(), ex.what());
+  }
+
+}
+
+void PCLDetection::remove_collision_object()
+{
+	moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+
+	std::vector<std::string> object_ids = planning_scene_interface.getKnownObjectNames();
+
+	if (!object_ids.empty()) {
+    RCLCPP_INFO(LOGGER, "Removing %zu collision objects", object_ids.size());
+    planning_scene_interface.removeCollisionObjects(object_ids);
+  }
+}
+
+void PCLDetection::remove_collision_plane(const std::string& plane_name)
+{
+	moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+
+	moveit_msgs::msg::CollisionObject collision_object;
+	collision_object.id = plane_name;
+	collision_object.header.frame_id = "base_link";
+	collision_object.operation = collision_object.REMOVE;
+
+	std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
+	collision_objects.push_back(collision_object);
+
+	RCLCPP_INFO(LOGGER, "Removing collision object for plane: %s", plane_name.c_str());
+	planning_scene_interface.removeCollisionObjects({plane_name});
 }
 
 
