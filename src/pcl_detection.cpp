@@ -408,9 +408,6 @@ namespace pcl_detection
     const std::string& to_frame,
     rclcpp::Time stamp)
 	{
-		// static tf2_ros::Buffer tf_buffer(node_->get_clock());
-    // static tf2_ros::TransformListener tf_listener(tf_buffer);
-		// tf_buffer_ptr_(node_->get_clock());
 
 		geometry_msgs::msg::TransformStamped transform;
 
@@ -433,21 +430,6 @@ namespace pcl_detection
 	void PCLDetection::publish_center_link(const DetectedPlane& plane)
 	{
 		pcl::PointXYZ center = plane.getCenter();
-
-		// pcl::PointXYZ min_pt, max_pt;
-	
-		// min_pt.x = -0.692448;
-		// max_pt.x = 0.69222;
-	
-		// min_pt.y = -0.90901;
-		// max_pt.y = -0.309027;
-	
-		// // double x = (min_pt.x + max_pt.x) / 2.0;
-		// double x = center.x;
-		// // double y = (min_pt.y + max_pt.y) / 2.0;
-		// double y = center.y;
-		// // double z = 0.80;
-		// double z = center.z - 0.5;
 
 		geometry_msgs::msg::Point point_in;
     point_in.x = center.x;
@@ -480,87 +462,6 @@ namespace pcl_detection
                 static_transform.transform.translation.y,
                 static_transform.transform.translation.z);
 	}
-
-// void PCLDetection::checkProximityToPlanes(double threshold)
-// {
-//     for (const auto& plane : planes_info)
-//     {
-//         geometry_msgs::msg::TransformStamped tf_robot_to_plane;
-//         try {
-//             tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
-//                 plane.name, "base_link", tf2::TimePointZero);
-
-//             double x = tf_robot_to_plane.transform.translation.x;
-//             double y = tf_robot_to_plane.transform.translation.y;
-
-//             // Calculate distance from robot to the nearest bounding box edge
-//             double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
-//             double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
-
-//             if (x >= plane.min_pt.x && x <= plane.max_pt.x &&
-//                 y >= plane.min_pt.y && y <= plane.max_pt.y)
-//             {
-//                 // Inside the bounding box, check proximity to edges
-//                 if (x_dist < threshold || y_dist < threshold) {
-//                     RCLCPP_WARN(LOGGER, "Robot is too close to plane %s (x_dist=%.2f, y_dist=%.2f)",
-//                                 plane.name.c_str(), x_dist, y_dist);
-//                     // TODO: don't cancel if the robot is moving in the opposite direction!
-// 										cancelMoveGoal();
-//                 }
-//             }
-
-//         } catch (const tf2::TransformException& ex) {
-//             RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
-//         }
-//     }
-// }
-
-// void PCLDetection::checkProximityToPlanes(double threshold)
-// {
-//   double velocity_mag = std::hypot(current_velocity_.linear.x, current_velocity_.linear.y);
-
-//   // If robot is moving, remove all previously added collision planes
-//   if (velocity_mag > 0.05 && !stopped_planes_.empty()) {
-//     RCLCPP_INFO(LOGGER, "Robot moving again, removing all collision planes");
-//     for (const auto& plane_name : stopped_planes_) {
-//       remove_collision_plane(plane_name);
-//     }
-//     stopped_planes_.clear();
-//     return;  // Early exit, no need to check proximity
-//   }
-
-//   for (const auto& plane : planes_info)
-//   {
-//     try {
-//       auto tf_robot_to_plane = tf_buffer_ptr_->lookupTransform(
-//         plane.name, "base_link", tf2::TimePointZero);
-
-//       double x = tf_robot_to_plane.transform.translation.x;
-//       double y = tf_robot_to_plane.transform.translation.y;
-
-//       double x_dist = std::min(std::abs(x - plane.min_pt.x), std::abs(plane.max_pt.x - x));
-//       double y_dist = std::min(std::abs(y - plane.min_pt.y), std::abs(plane.max_pt.y - y));
-
-//       bool inside = (x >= plane.min_pt.x && x <= plane.max_pt.x &&
-//                      y >= plane.min_pt.y && y <= plane.max_pt.y);
-
-//       if (inside && (x_dist < threshold || y_dist < threshold)) {
-//         if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
-//           if (!stopped_planes_.count(plane.name)) {
-//             RCLCPP_WARN(LOGGER, "Too close (x: %f, y: %f) and heading toward %s", 
-// 												x_dist, y_dist, plane.name.c_str());
-//             cancelMoveGoal();
-//             publish_collision_plane(plane);
-//             stopped_planes_.insert(plane.name);
-//           }
-//         }
-//       }
-
-//     } catch (const tf2::TransformException& ex) {
-//       RCLCPP_WARN(LOGGER, "TF lookup failed for %s: %s", plane.name.c_str(), ex.what());
-//     }
-//   }
-// }
 
 void PCLDetection::checkProximityToPlanes(double threshold)
 {

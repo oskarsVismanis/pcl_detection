@@ -133,7 +133,8 @@ int main(int argc, char ** argv)
   detection.remove_collision_object();
 
   // process point cloud
-  // process_pcl_data(input_pcd, output_pcd);
+
+  // detection.process_pcl_data(input_pcd, output_pcd);
   detection.process_test_pcl_data(input_test_pcd, output_test_pcd);
 
   // std::cout << "Printing detected planes: ";
