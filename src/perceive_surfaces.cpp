@@ -5,8 +5,6 @@ typedef boost::shared_ptr<tf2_ros::Buffer> tfBufferPtr;
 
 using namespace pcl_detection;
 
-// const rclcpp::Logger LOGGER = rclcpp::get_logger("plane_detection_node");
-
 void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
                         pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
                         bool show_plane = true, 
@@ -82,15 +80,6 @@ void plane_segmentation(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
   }
   
 }
-
-// void align_plane(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
-//                  pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
-//                  pcl::ModelCoefficients::Ptr coefficients_plane)
-// {
-  
-// }
-
-
 
 int main(int argc, char ** argv)
 {

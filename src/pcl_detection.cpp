@@ -8,15 +8,17 @@ namespace pcl_detection
 {
 	PCLDetection::PCLDetection(const rclcpp::Node::SharedPtr& node, tfBufferPtr& tf_buffer_ptr) : node_(node), tf_buffer_ptr_(tf_buffer_ptr)
 	{
-		  // detection.odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
-  //   "/odom", 10, std::bind(&PCLDetection::odomCallback, node_, std::placeholders::_1));
-		odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>("/mobile_base_controller/odom", 10, std::bind(&PCLDetection::odomCallback, this, std::placeholders::_1));
+		odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>("/mobile_base_controller/odom", 
+								10, std::bind(&PCLDetection::odomCallback, this, std::placeholders::_1));
 	}
 
 	PCLDetection::~PCLDetection()
 	{}
 
-	void PCLDetection::voxel_filter(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, float leafsize)
+	void PCLDetection::voxel_filter(
+		pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
+		float leafsize)
 {
 		pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
 		voxel_filter.setInputCloud(input_cloud);
@@ -39,7 +41,9 @@ namespace pcl_detection
 		}
 	}
 
-	void PCLDetection::statistical_outlier_removal(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
+	void PCLDetection::statistical_outlier_removal(
+		pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
 	{
 		pcl::StatisticalOutlierRemoval<pcl::PointXYZ> sor;
 		sor.setInputCloud(input_cloud);
@@ -56,7 +60,9 @@ namespace pcl_detection
 		sor.filter(*output_cloud);
 	}
 
-	void PCLDetection::moving_least_squares(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
+	void PCLDetection::moving_least_squares(
+		pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
+		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud)
 	{
 		
 		// Moving Least Squares (MLS) filter (method 2) https://pcl.readthedocs.io/projects/tutorials/en/latest/resampling.html
@@ -98,7 +104,8 @@ namespace pcl_detection
 		// *output_cloud = *smoothed_cloud; // replace the original filtered cloud
 	}
 
-	void PCLDetection::all_plane_seg(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
+	void PCLDetection::all_plane_seg(
+		pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud,
 		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud,
 		// std::vector<DetectedPlane>& planes_info,
 		bool show_plane,
@@ -156,13 +163,8 @@ namespace pcl_detection
 				*all_planes += *cloud_plane; // accumulate planes if show_plane == true
 
 				// Store plane info
-				// DetectedPlane plane;
-				// plane.name = "plane_" + std::to_string(i);
-				// pcl::getMinMax3D(*cloud_plane, plane.min_pt, plane.max_pt);
-				// planes_info.push_back(plane);
-				addDetectedPlane(cloud_plane);
+				addDetectedPlane(cloud_plane, normal);
 
-				// printDetectedPlane(planes_info[i]);
 			}
 
 			// Remove current plane from remaining cloud
@@ -180,10 +182,14 @@ namespace pcl_detection
 		// align plane to horizontal plane
 	}
 
-	void PCLDetection::addDetectedPlane(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane)
+	void PCLDetection::addDetectedPlane(
+		const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane, 
+		const Eigen::Vector3f& normal)
 	{
 		DetectedPlane new_plane;
 		pcl::getMinMax3D(*cloud_plane, new_plane.min_pt, new_plane.max_pt);
+		new_plane.normal = normal;
+
 		pcl::PointXYZ c1 = new_plane.getCenter();
 
 		float overlap_threshold = 0.01f; // Adjust as needed
@@ -449,10 +455,17 @@ namespace pcl_detection
     static_transform.transform.translation.y = point_in_map.y;
     static_transform.transform.translation.z = point_in_map.z - 0.8;
 	
-		static_transform.transform.rotation.x = 0.0;
-		static_transform.transform.rotation.y = 0.0;
-		static_transform.transform.rotation.z = 0.0;
-		static_transform.transform.rotation.w = 1.0;
+		// static_transform.transform.rotation.x = 0.0;
+		// static_transform.transform.rotation.y = 0.0;
+		// static_transform.transform.rotation.z = 0.0;
+		// static_transform.transform.rotation.w = 1.0;
+
+		Eigen::Quaternionf q = plane.getOrientationQuaternion();
+
+		static_transform.transform.rotation.x = q.x();
+		static_transform.transform.rotation.y = q.y();
+		static_transform.transform.rotation.z = q.z();
+		static_transform.transform.rotation.w = q.w();
 	
 		static_broadcaster.sendTransform(static_transform);
 	

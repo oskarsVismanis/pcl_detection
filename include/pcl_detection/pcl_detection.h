@@ -50,23 +50,34 @@ namespace pcl_detection
 
         pcl::PointXYZ min_pt;
         pcl::PointXYZ max_pt;
+        Eigen::Vector3f normal;
 
         // Convenience method to get center
         pcl::PointXYZ getCenter() const {
             return pcl::PointXYZ{
-            (min_pt.x + max_pt.x) / 2.0,
-            (min_pt.y + max_pt.y) / 2.0,
-            (min_pt.z + max_pt.z) / 2.0
+                (min_pt.x + max_pt.x) / 2.0,
+                (min_pt.y + max_pt.y) / 2.0,
+                (min_pt.z + max_pt.z) / 2.0
             };
         }
 
         // Convenience method to get dimensions
         pcl::PointXYZ getDimensions() const {
             return pcl::PointXYZ{
-            std::abs(max_pt.x - min_pt.x), // length
-            std::abs(max_pt.y - min_pt.y), // width
-            std::abs(max_pt.z - min_pt.z)  // height
+                std::abs(max_pt.x - min_pt.x), // length
+                std::abs(max_pt.y - min_pt.y), // width
+                std::abs(max_pt.z - min_pt.z)  // height
             };
+        }
+
+        // Converts plane normal to orientation quaternion
+        Eigen::Quaternionf getOrientationQuaternion() const {
+            // Assume Z-axis (0,0,1) is the "default" normal
+            Eigen::Vector3f z_axis = Eigen::Vector3f::UnitZ();
+
+            // Compute rotation between Z-axis and actual normal
+            Eigen::Quaternionf q = Eigen::Quaternionf::FromTwoVectors(z_axis, normal.normalized());
+            return q;
         }
     };
 
@@ -136,7 +147,7 @@ namespace pcl_detection
             int min_inliers = 100,
             bool horizontal_only = false);
 
-        void addDetectedPlane(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane);
+        void addDetectedPlane(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_plane, const Eigen::Vector3f& normal);
 
         void estimate_plane_bbox(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud);
 
