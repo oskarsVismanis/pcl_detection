@@ -2,7 +2,17 @@
 
 ## Usage
 
-### Process point cloud and publish to PlanningScene
+### Detect planes for mobile manipulator
+
+> [NOTE] Assuming [pmb2_ar4_ros](https://gitlab.edi.lv/edi_robotics/robot_control/pmb2_ar4_ros) is installed
+
+- start mob-man 
+
+```bash
+ros2 launch pmb2_ar4_gazebo pmb2_ar4_gazebo.launch.py is_public_sim:=True navigation:=True moveit:=True
+```
+
+- process point cloud, detect planes and publish them
 
 ```bash
 ros2 run pcl_detection perceive_surfaces
@@ -30,21 +40,7 @@ ros2 run pcl_detection save_data
 pcl_viever path/to/filename.pcd
 ```
 
-### Detect planes for mobile manipulator
 
-> [NOTE] Assuming [pmb2_ar4_ros](https://gitlab.edi.lv/edi_robotics/robot_control/pmb2_ar4_ros) is installed
-
-- start mob-man 
-
-```bash
-ros2 launch pmb2_ar4_gazebo pmb2_ar4_gazebo.launch.py is_public_sim:=True navigation:=True moveit:=True
-```
-
-- start plane detection node
-
-```bash
-ros2 run pcl_detection perceive_surfaces
-```
 
 ## Notes
 
