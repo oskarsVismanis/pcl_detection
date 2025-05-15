@@ -499,24 +499,53 @@ void PCLDetection::checkProximityToPlanes(double threshold)
       double x = tf_robot_to_plane.transform.translation.x;
       double y = tf_robot_to_plane.transform.translation.y;
 
-      // Check the distances to the plane's boundaries (edges)
-      double x_dist_to_min_edge = std::abs(x - plane.min_pt.x);
-      double x_dist_to_max_edge = std::abs(x - plane.max_pt.x);
-      double y_dist_to_min_edge = std::abs(y - plane.min_pt.y);
-      double y_dist_to_max_edge = std::abs(y - plane.max_pt.y);
+			// corner detection edit //
+				// get dimensions
+			auto dims = plane.getDimensions();
+			double half_length = dims.x / 2.0;
+			double half_width = dims.y / 2.0;
 
-      // Check if the robot is within the threshold distance from any edge
-      bool too_close_x = (x_dist_to_min_edge < threshold || x_dist_to_max_edge < threshold);
-      bool too_close_y = (y_dist_to_min_edge < threshold || y_dist_to_max_edge < threshold);
+				// Compute distance to each edge
+			double dx = std::max(0.0, std::abs(x) - half_length);
+			double dy = std::max(0.0, std::abs(y) - half_width);
+
+			double distance_to_edge;
+
+			if (dx > 0 && dy > 0) {
+				// Outside both in x and y → closest to a corner
+				distance_to_edge = std::hypot(dx, dy);
+			} else if (dx > 0) {
+				// Outside in x only
+				distance_to_edge = dx;
+			} else if (dy > 0) {
+				// Outside in y only
+				distance_to_edge = dy;
+			} else {
+				// Inside the plane bounds
+				distance_to_edge = 0.0;  // Or negative if you want penetration depth
+			}
+
+			bool too_close = (distance_to_edge > 0.0 && distance_to_edge < threshold);
+
+			// corner detection edit end //
+
+      // Check the distances to the plane's boundaries (edges)
+      // double x_dist_to_min_edge = std::abs(x - plane.min_pt.x);
+      // double x_dist_to_max_edge = std::abs(x - plane.max_pt.x);
+      // double y_dist_to_min_edge = std::abs(y - plane.min_pt.y);
+      // double y_dist_to_max_edge = std::abs(y - plane.max_pt.y);
+
+      // // Check if the robot is within the threshold distance from any edge
+      // bool too_close_x = (x_dist_to_min_edge < threshold || x_dist_to_max_edge < threshold);
+      // bool too_close_y = (y_dist_to_min_edge < threshold || y_dist_to_max_edge < threshold);
 
       // The robot should stop only if it is within the threshold distance from the plane's edges
-      if ((too_close_x || too_close_y)) {
+      // if ((too_close_x || too_close_y)) {
+			if (too_close) {
         if (isMovingTowardPlane(tf_robot_to_plane, plane)) {
           if (!stopped_planes_.count(plane.name)) {
             RCLCPP_WARN(LOGGER, "Too close (x: %f, y: %f) and heading toward %s", 
-                        std::min(x_dist_to_min_edge, x_dist_to_max_edge), 
-                        std::min(y_dist_to_min_edge, y_dist_to_max_edge), 
-                        plane.name.c_str());
+																											dx, dy, plane.name.c_str());
             cancelMoveGoal();
             publish_collision_plane(plane);
             stopped_planes_.insert(plane.name);
