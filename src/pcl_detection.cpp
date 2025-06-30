@@ -19,7 +19,7 @@ namespace pcl_detection
 		pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, 
 		pcl::PointCloud<pcl::PointXYZ>::Ptr output_cloud, 
 		float leafsize)
-{
+	{
 		pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
 		voxel_filter.setInputCloud(input_cloud);
 		voxel_filter.setLeafSize(leafsize, leafsize, leafsize); // play with (the higher, the larger the distance between the points)

@@ -158,7 +158,7 @@ int main(int argc, char ** argv)
 
   while(rclcpp::ok())
   {
-    detection.checkProximityToPlanes(0.2);
+    detection.checkProximityToPlanes(0.4);
   }
 
   rclcpp::shutdown();
