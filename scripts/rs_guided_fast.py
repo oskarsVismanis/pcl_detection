@@ -3,7 +3,45 @@ import os, time, argparse
 import numpy as np, cv2, onnxruntime as ort, pyrealsense2 as rs
 from collections import deque
 
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
+import std_msgs.msg
+
 Z_MIN, Z_MAX = 0.20, 4.00  # meters
+
+class PointCloudPublisher(Node):
+    def __init__(self, topic_name="depth_cloud"):
+
+        super().__init__("pointcloud_pub")
+        self.pub = self.create_publisher(PointCloud2, topic_name, 10)
+
+    def publish_pointcloud(self, filled_depth_m, intrinsics):
+
+        H, W = filled_depth_m.shape
+        fx, fy = intrinsics.fx, intrinsics.fy
+        cx, cy = intrinsics.ppx, intrinsics.ppy
+
+        # Pixel grid
+        i, j = np.indices((H, W))
+        z = filled_depth_m
+        x = (j - cx) * z / fx
+        y = (i - cy) * z / fy
+
+        # Flatten to (N, 3)
+        points = np.stack((x, y, z), axis=-1).reshape(-1, 3)
+
+        # Create PointCloud2
+        header = std_msgs.msg.Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id="camera_link"
+        cloud_msg = point_cloud2.create_cloud_xyz32(
+            header=header,
+            points=points
+        )
+
+        self.pub.publish(cloud_msg)
 
 # ---------------- ONNX session (TRT -> CUDA -> CPU) ----------------
 def make_sess(path):
@@ -99,6 +137,9 @@ class TemporalMedian:
 # ---------------- main ----------------
 def main():
 
+    rclpy.init()
+    ros_node = PointCloudPublisher()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--onnx", required=True)
     ap.add_argument("--w", type=int, required=True)
@@ -192,6 +233,10 @@ def main():
             else:
                 filled = filled_cached
 
+            # Publish to ROS node
+            ros_node.publish_pointcloud(filled, depth_intr)
+            rclpy.spin_once(ros_node, timeout_sec=0)
+
             # Visualization
             raw_vis = np.asanyarray(colorizer.colorize(df).get_data())
             z8 = cv2.normalize(filled, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
@@ -210,6 +255,7 @@ def main():
             frame += 1
     finally:
         pipe.stop(); cv2.destroyAllWindows()
+        ros_node.destroy_node(); rclpy.shutdown()
 
 if __name__ == "__main__":
     main()
